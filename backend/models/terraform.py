@@ -72,3 +72,15 @@ class CostFinding(Base):
     file = relationship("TerraformFile", back_populates="cost_findings")
 
 
+class AIInsight(Base):
+    __tablename__ = "ai_insights"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    finding_id = Column(Integer, nullable=False)
+    finding_type = Column(String(50), nullable=False) # "security" or "cost"
+    prompt = Column(String(2048), nullable=False)
+    response = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+

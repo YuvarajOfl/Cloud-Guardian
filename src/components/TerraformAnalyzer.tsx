@@ -15,7 +15,9 @@ import {
   Database,
   ShieldAlert,
   FileText,
-  DollarSign
+  DollarSign,
+  Sparkles,
+  Copy
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -46,7 +48,10 @@ export function TerraformAnalyzer() {
   const [selectedFileId, setSelectedFileId] = useState<string>('all');
   
   // Tab State
-  const [activeTab, setActiveTab] = useState<'inventory' | 'findings'>('inventory');
+  const [activeTab, setActiveTab] = useState<'inventory' | 'findings' | 'ai-insights'>('inventory');
+  const [aiInsights, setAiInsights] = useState<any[]>([]);
+  const [generatingInsightId, setGeneratingInsightId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [findingsSearchTerm, setFindingsSearchTerm] = useState<string>('');
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
   
@@ -160,6 +165,54 @@ export function TerraformAnalyzer() {
     }
   };
 
+  const fetchAiInsights = async (silent = false) => {
+    try {
+      const response = await fetch(`${API_URL}/api/ai/insights`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setAiInsights(data);
+      }
+    } catch (err) {
+      console.error('Network error fetching AI insights:', err);
+    }
+  };
+
+  const handleGenerateAI = async (findingId: number, findingType: 'security' | 'cost') => {
+    const identifier = `${findingType}-${findingId}`;
+    setGeneratingInsightId(identifier);
+    try {
+      const response = await fetch(`${API_URL}/api/ai/analyze/${findingId}?finding_type=${findingType}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (response.ok) {
+        triggerMessage('success', `AI ${findingType === 'security' ? 'Analysis' : 'Recommendation'} generated successfully.`);
+        await fetchAiInsights();
+        setActiveTab('ai-insights');
+      } else {
+        const errData = await response.json();
+        triggerMessage('error', errData.detail || 'Failed to generate AI explanation.');
+      }
+    } catch (err) {
+      triggerMessage('error', 'Network error generating AI response.');
+      console.error(err);
+    } finally {
+      setGeneratingInsightId(null);
+    }
+  };
+
+  const handleCopyCode = (text: string, identifier: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(identifier);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
   // Handle PDF report generation and download
   const handleDownloadReport = async (fileId: number, fileName: string) => {
     try {
@@ -195,6 +248,7 @@ export function TerraformAnalyzer() {
     fetchResources();
     fetchFindings();
     fetchCostFindings();
+    fetchAiInsights();
   }, [token]);
 
   // Refetch resources, findings & cost findings whenever selected file filter changes
@@ -202,6 +256,7 @@ export function TerraformAnalyzer() {
     fetchResources();
     fetchFindings();
     fetchCostFindings();
+    fetchAiInsights();
     setCurrentPage(1); // Reset page on filter update
     setCostCurrentPage(1);
   }, [selectedFileId]);
@@ -286,6 +341,7 @@ export function TerraformAnalyzer() {
         fetchResources(true);
         fetchFindings(true);
         fetchCostFindings(true);
+        fetchAiInsights(true);
       } else {
         try {
           const errData = JSON.parse(xhr.responseText);
@@ -326,6 +382,7 @@ export function TerraformAnalyzer() {
           fetchResources(true);
           fetchFindings(true);
           fetchCostFindings(true);
+          fetchAiInsights(true);
         }
       } else {
         triggerMessage('error', 'Failed to delete file.');
@@ -341,6 +398,7 @@ export function TerraformAnalyzer() {
     fetchResources();
     fetchFindings();
     fetchCostFindings();
+    fetchAiInsights();
   };
 
   // Derived Filter Options
@@ -415,6 +473,19 @@ export function TerraformAnalyzer() {
     (costCurrentPage - 1) * itemsPerPage,
     costCurrentPage * itemsPerPage
   );
+
+  // Filtered AI Insights based on current findings in view
+  const currentFindingIds = findings.map(f => f.id);
+  const currentCostFindingIds = costFindings.map(f => f.id);
+
+  const filteredAIInsights = aiInsights.filter(insight => {
+    if (insight.finding_type === 'security') {
+      return currentFindingIds.includes(insight.finding_id);
+    } else if (insight.finding_type === 'cost') {
+      return currentCostFindingIds.includes(insight.finding_id);
+    }
+    return false;
+  });
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-fade-in relative z-10">
@@ -666,6 +737,18 @@ export function TerraformAnalyzer() {
               <ShieldAlert className="h-3.5 w-3.5" />
               <span>Security & Cost Findings ({findings.length + costFindings.length})</span>
             </button>
+
+            <button
+              onClick={() => { setActiveTab('ai-insights'); setCurrentPage(1); }}
+              className={`flex items-center gap-2 text-xs font-mono font-bold uppercase tracking-wider transition-all cursor-pointer py-1.5 px-3 rounded-lg ${
+                activeTab === 'ai-insights' 
+                  ? 'text-blue-450 bg-blue-500/10 border border-blue-500/20' 
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+              }`}
+            >
+              <Sparkles className="h-3.5 w-3.5 text-blue-400" />
+              <span>AI Insights ({filteredAIInsights.length})</span>
+            </button>
           </div>
           
           {/* File Filter Dropdown */}
@@ -813,7 +896,7 @@ export function TerraformAnalyzer() {
               </div>
             )}
           </div>
-        ) : (
+        ) : activeTab === 'findings' ? (
           /* Findings Tab View */
           <div className="divide-y divide-white/5">
             {/* Section 1: Security Findings */}
@@ -923,8 +1006,24 @@ export function TerraformAnalyzer() {
                               {finding.description}
                             </td>
                             <td className="py-4 px-6 bg-white/[0.01] text-slate-300 leading-relaxed max-w-[320px]">
-                              <span className="text-[9px] font-bold text-slate-400 block mb-1 uppercase tracking-widest font-mono">Action Item:</span>
-                              {finding.recommendation}
+                              <div>
+                                <span className="text-[9px] font-bold text-slate-450 block mb-1 uppercase tracking-widest font-mono">Action Item:</span>
+                                {finding.recommendation}
+                              </div>
+                              <div className="mt-3">
+                                <button
+                                  onClick={() => handleGenerateAI(finding.id, 'security')}
+                                  disabled={generatingInsightId !== null}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[10px] font-semibold transition-all disabled:opacity-50 cursor-pointer shadow-[0_0_10px_rgba(37,99,235,0.2)]"
+                                >
+                                  {generatingInsightId === `security-${finding.id}` ? (
+                                    <RefreshCw className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Sparkles className="h-3 w-3" />
+                                  )}
+                                  <span>Generate AI Analysis</span>
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -1012,10 +1111,24 @@ export function TerraformAnalyzer() {
                             </td>
                             <td className="py-4 px-6 text-slate-400 leading-relaxed max-w-[320px]">
                               <div className="font-bold text-slate-200 leading-snug">{finding.title}</div>
-                              <div className="text-[10px] text-slate-500 font-mono mt-1">{finding.description}</div>
+                              <div className="text-[10px] text-slate-550 font-mono mt-1">{finding.description}</div>
                             </td>
                             <td className="py-4 px-6 bg-white/[0.01] text-slate-350 leading-relaxed max-w-[320px]">
-                              {finding.recommendation}
+                              <div>{finding.recommendation}</div>
+                              <div className="mt-3">
+                                <button
+                                  onClick={() => handleGenerateAI(finding.id, 'cost')}
+                                  disabled={generatingInsightId !== null}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-semibold transition-all disabled:opacity-50 cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.2)]"
+                                >
+                                  {generatingInsightId === `cost-${finding.id}` ? (
+                                    <RefreshCw className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Sparkles className="h-3 w-3" />
+                                  )}
+                                  <span>Generate AI Recommendation</span>
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -1027,6 +1140,132 @@ export function TerraformAnalyzer() {
                 </div>
               )}
             </div>
+          </div>
+        ) : (
+          /* AI Insights Tab View */
+          <div className="p-6 space-y-6">
+            {filteredAIInsights.length === 0 ? (
+              <div className="p-16 text-center space-y-2">
+                <p className="text-slate-450 text-xs font-semibold">No findings available for AI analysis.</p>
+                <p className="text-slate-600 text-[10px] max-w-sm mx-auto leading-normal">
+                  Go to the Security & Cost Findings tab and click "Generate AI Analysis" or "Generate AI Recommendation" to populate AI remediation guides.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {filteredAIInsights.map((insight) => {
+                  let title = "";
+                  let severity = "";
+                  let resourceName = "";
+                  let resourceType = "";
+                  
+                  if (insight.finding_type === 'security') {
+                    const orig = findings.find(f => f.id === insight.finding_id);
+                    title = orig?.title || "Security Finding";
+                    severity = orig?.severity || "Critical";
+                    resourceName = orig?.resource_name || "";
+                    resourceType = orig?.resource_type || "";
+                  } else {
+                    const orig = costFindings.find(f => f.id === insight.finding_id);
+                    title = orig?.title || "Cost Finding";
+                    severity = "Cost";
+                    resourceName = orig?.resource_name || "";
+                    resourceType = orig?.resource_type || "";
+                  }
+
+                  const response = insight.response || {};
+                  
+                  const explanation = response.issue_summary 
+                    ? `${response.issue_summary}\n\n${response.why_this_matters || response.attack_surface_explanation || ''}`
+                    : `${response.cost_concern || response.cost_waste_explanation || ''}`;
+                    
+                  const businessImpact = response.business_impact || response.estimated_impact || response.estimated_monthly_savings || '';
+                  const recommendedFix = response.recommended_fix || response.optimization_suggestion || response.cleanup_recommendation || '';
+                  const terraformSnippet = response.terraform_example || response.terraform_fix || response.alternative_resource_recommendation || '';
+                  const bestPractice = response.best_practice || '';
+
+                  return (
+                    <div key={insight.id} className="p-6 bg-slate-900/40 border border-white/5 rounded-2xl space-y-6 shadow-xl relative overflow-hidden">
+                      {/* Card Header */}
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-white/5 pb-4">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
+                              insight.finding_type === 'security'
+                                ? severity === 'Critical' ? 'bg-rose-500/15 text-rose-400 border border-rose-500/20'
+                                  : severity === 'High' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+                                  : 'bg-yellow-500/15 text-yellow-355 border border-yellow-500/20'
+                                : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+                            }`}>
+                              {insight.finding_type === 'security' ? `Security: ${severity}` : 'Cost Optimization'}
+                            </span>
+                            <span className="text-[10px] text-slate-500 font-mono">Resource: {resourceName}</span>
+                          </div>
+                          <h4 className="text-sm font-extrabold text-white mt-1.5">{title}</h4>
+                        </div>
+                        <span className="text-[9px] text-slate-550 font-mono">Generated: {new Date(insight.created_at).toLocaleDateString()}</span>
+                      </div>
+
+                      {/* Card Body Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs text-slate-350">
+                        <div className="space-y-4">
+                          <div>
+                            <span className="text-[9px] font-bold text-slate-450 uppercase tracking-widest font-mono block mb-1">AI Explanation</span>
+                            <p className="leading-relaxed whitespace-pre-line text-slate-400">{explanation}</p>
+                          </div>
+                          
+                          {businessImpact && (
+                            <div>
+                              <span className="text-[9px] font-bold text-slate-450 uppercase tracking-widest font-mono block mb-1">Business Impact</span>
+                              <p className="leading-relaxed text-slate-400">{businessImpact}</p>
+                            </div>
+                          )}
+
+                          {recommendedFix && (
+                            <div>
+                              <span className="text-[9px] font-bold text-slate-450 uppercase tracking-widest font-mono block mb-1">Recommended Fix</span>
+                              <p className="leading-relaxed text-slate-400">{recommendedFix}</p>
+                            </div>
+                          )}
+
+                          {bestPractice && (
+                            <div>
+                              <span className="text-[9px] font-bold text-slate-455 uppercase tracking-widest font-mono block mb-1">Best Practice</span>
+                              <p className="leading-relaxed text-slate-400">{bestPractice}</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Right Column: Code Snippet */}
+                        <div className="flex flex-col">
+                          <span className="text-[9px] font-bold text-slate-450 uppercase tracking-widest font-mono block mb-1.5">Remediation Snippet / Proposal</span>
+                          {terraformSnippet ? (
+                            <div className="flex-1 bg-slate-950 border border-white/5 rounded-xl p-4 font-mono text-[10px] text-slate-300 relative group overflow-x-auto min-h-[160px] flex flex-col justify-between">
+                              <pre className="whitespace-pre overflow-x-auto pr-8">{terraformSnippet}</pre>
+                              <button
+                                onClick={() => handleCopyCode(terraformSnippet, `copy-${insight.id}`)}
+                                className="absolute top-2 right-2 p-1.5 bg-white/5 border border-white/10 hover:bg-white/10 rounded-lg text-slate-450 hover:text-white transition-all cursor-pointer"
+                                title="Copy snippet to clipboard"
+                              >
+                                {copiedId === `copy-${insight.id}` ? (
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                                ) : (
+                                  <Copy className="h-3.5 w-3.5" />
+                                )}
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex-1 bg-slate-950/40 border border-dashed border-white/5 rounded-xl flex items-center justify-center text-slate-500 font-mono text-[10px] min-h-[160px]">
+                              No code snippet required for this remediation.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>

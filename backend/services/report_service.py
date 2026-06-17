@@ -9,7 +9,8 @@ from reportlab.platypus import (
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfgen import canvas
-from backend.models.terraform import TerraformFile, TerraformResource, SecurityFinding, CostFinding
+from backend.models.terraform import TerraformFile, TerraformResource, SecurityFinding, CostFinding, AIInsight
+from backend.services.gemini_service import analyze_finding
 
 logger = logging.getLogger("backend.services.report")
 
@@ -142,6 +143,21 @@ def generate_pdf_report(db: Session, tf_file: TerraformFile) -> BytesIO:
         fontSize=9,
         leading=13,
         textColor=colors.HexColor("#1e293b")
+    )
+
+    code_style = ParagraphStyle(
+        'CodeBlock',
+        parent=normal_style,
+        fontName='Courier',
+        fontSize=8,
+        leading=11,
+        textColor=colors.HexColor("#0f172a"),
+        backColor=colors.HexColor("#f1f5f9"),
+        borderColor=colors.HexColor("#cbd5e1"),
+        borderWidth=0.5,
+        borderPadding=6,
+        spaceBefore=5,
+        spaceAfter=5
     )
     
     story = []
@@ -389,7 +405,173 @@ def generate_pdf_report(db: Session, tf_file: TerraformFile) -> BytesIO:
                 details_table,
                 Spacer(1, 15)
             ]))
+
+    # --- AI INSIGHTS ENHANCEMENTS ---
+    ai_insights = {}
+    for f in findings:
+        insight = db.query(AIInsight).filter(
+            AIInsight.finding_id == f.id,
+            AIInsight.finding_type == "security"
+        ).first()
+        if not insight:
+            try:
+                res = analyze_finding(f, "security")
+                insight = AIInsight(
+                    finding_id=f.id,
+                    finding_type="security",
+                    prompt=f"PDF generation analyze security: {f.title}",
+                    response=res
+                )
+                db.add(insight)
+                db.commit()
+                db.refresh(insight)
+            except Exception as exc:
+                logger.error(f"Error generating insight for security finding {f.id}: {exc}")
+                insight = None
+        if insight:
+            ai_insights[(f.id, "security")] = insight.response
+
+    for f in cost_findings:
+        insight = db.query(AIInsight).filter(
+            AIInsight.finding_id == f.id,
+            AIInsight.finding_type == "cost"
+        ).first()
+        if not insight:
+            try:
+                res = analyze_finding(f, "cost")
+                insight = AIInsight(
+                    finding_id=f.id,
+                    finding_type="cost",
+                    prompt=f"PDF generation analyze cost: {f.title}",
+                    response=res
+                )
+                db.add(insight)
+                db.commit()
+                db.refresh(insight)
+            except Exception as exc:
+                logger.error(f"Error generating insight for cost finding {f.id}: {exc}")
+                insight = None
+        if insight:
+            ai_insights[(f.id, "cost")] = insight.response
+
+    def format_code_snippet(code: str) -> str:
+        if not code:
+            return ""
+        escaped = code.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        formatted = escaped.replace("\n", "<br/>").replace(" ", "&nbsp;")
+        return formatted
+
+    # 1. AI Security Recommendations
+    sec_insights = [ai_insights[(f.id, "security")] for f in findings if (f.id, "security") in ai_insights]
+    if sec_insights:
+        story.append(KeepTogether([
+            Paragraph("AI Security Recommendations", section_heading),
+            Spacer(1, 5)
+        ]))
+        for f in findings:
+            resp = ai_insights.get((f.id, "security"))
+            if not resp:
+                continue
+            why_matters = resp.get("why_this_matters") or resp.get("attack_surface_explanation") or ""
+            bus_impact = resp.get("business_impact") or ""
+            rec_fix = resp.get("recommended_fix") or ""
             
+            finding_text = f"<b>Finding:</b> {f.title} ({f.resource_name})"
+            details_content = [
+                Paragraph(finding_text, normal_style),
+                Paragraph(f"<b>Why This Matters:</b> {why_matters}", normal_style),
+                Paragraph(f"<b>Business Impact:</b> {bus_impact}", normal_style),
+                Paragraph(f"<b>Recommended Action:</b> {rec_fix}", normal_style),
+                Spacer(1, 10)
+            ]
+            story.append(KeepTogether(details_content))
+
+    # 2. AI Cost Optimization Recommendations
+    c_insights = [ai_insights[(f.id, "cost")] for f in cost_findings if (f.id, "cost") in ai_insights]
+    if c_insights:
+        story.append(KeepTogether([
+            Paragraph("AI Cost Optimization Recommendations", section_heading),
+            Spacer(1, 5)
+        ]))
+        for f in cost_findings:
+            resp = ai_insights.get((f.id, "cost"))
+            if not resp:
+                continue
+            concern = resp.get("cost_concern") or resp.get("cost_waste_explanation") or ""
+            impact = resp.get("estimated_impact") or resp.get("estimated_monthly_savings") or f"Potential savings: ${f.estimated_monthly_cost:.2f}/mo"
+            suggestion = resp.get("optimization_suggestion") or resp.get("cleanup_recommendation") or ""
+            
+            finding_text = f"<b>Resource:</b> {f.resource_name} (-${f.estimated_monthly_cost:.2f}/mo)"
+            details_content = [
+                Paragraph(finding_text, normal_style),
+                Paragraph(f"<b>Cost Concern:</b> {concern}", normal_style),
+                Paragraph(f"<b>Financial Impact:</b> {impact}", normal_style),
+                Paragraph(f"<b>Optimization Suggestion:</b> {suggestion}", normal_style),
+                Spacer(1, 10)
+            ]
+            story.append(KeepTogether(details_content))
+
+    # 3. Terraform Remediation Suggestions
+    remediation_blocks = []
+    for f in findings:
+        resp = ai_insights.get((f.id, "security"))
+        if not resp:
+            continue
+        code = resp.get("terraform_example") or resp.get("terraform_fix") or ""
+        if code:
+            remediation_blocks.append((f.title, f.resource_name, code))
+            
+    for f in cost_findings:
+        resp = ai_insights.get((f.id, "cost"))
+        if not resp:
+            continue
+        code = resp.get("alternative_resource_recommendation") or ""
+        if code:
+            remediation_blocks.append((f.title, f.resource_name, code))
+            
+    if remediation_blocks:
+        story.append(KeepTogether([
+            Paragraph("Terraform Remediation Suggestions", section_heading),
+            Spacer(1, 5)
+        ]))
+        for title, resource, code in remediation_blocks:
+            code_fmt = format_code_snippet(code)
+            block_content = [
+                Paragraph(f"<b>Remediation for:</b> {title} ({resource})", normal_style),
+                Paragraph(code_fmt, code_style),
+                Spacer(1, 10)
+            ]
+            story.append(KeepTogether(block_content))
+
+    # 4. Best Practices Summary
+    best_practices = []
+    for f in findings:
+        resp = ai_insights.get((f.id, "security"))
+        if resp and resp.get("best_practice"):
+            best_practices.append(f"<b>Security ({f.resource_type}):</b> {resp['best_practice']}")
+            
+    for f in cost_findings:
+        resp = ai_insights.get((f.id, "cost"))
+        if resp and resp.get("best_practice"):
+            best_practices.append(f"<b>Cost ({f.resource_type}):</b> {resp['best_practice']}")
+            
+    if best_practices:
+        story.append(KeepTogether([
+            Paragraph("Best Practices Summary", section_heading),
+            Spacer(1, 5)
+        ]))
+        bp_list = []
+        for bp in best_practices:
+            bp_list.append([Paragraph(f"• {bp}", normal_style)])
+            
+        bp_table = Table(bp_list, colWidths=[504])
+        bp_table.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('PADDING', (0,0), (-1,-1), 4),
+            ('LEFTPADDING', (0,0), (-1,-1), 10),
+        ]))
+        story.append(KeepTogether([bp_table, Spacer(1, 15)]))
+
     # Build the document
     doc.build(story, canvasmaker=NumberedCanvas)
     buffer.seek(0)

@@ -7,10 +7,11 @@ from backend.config.settings import settings
 from backend.database.session import engine, Base
 # Import models to ensure they are registered on Base for table creation
 from backend.models.user import User
-from backend.models.terraform import TerraformFile, TerraformResource, SecurityFinding
+from backend.models.terraform import TerraformFile, TerraformResource, SecurityFinding, AIInsight
 from backend.routes.auth import router as auth_router
 from backend.routes.health import router as health_router
 from backend.routes.terraform import router as terraform_router
+from backend.routes.ai import router as ai_router
 from backend.middleware.error_handler import setup_exception_handlers
 
 
@@ -56,6 +57,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(health_router)
 app.include_router(terraform_router)
+app.include_router(ai_router)
 
 @app.get("/")
 async def root():

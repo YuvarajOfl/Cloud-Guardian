@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # Google OAuth Configuration
     GOOGLE_CLIENT_ID: str = ""
 
+    # Gemini API Key Configuration
+    GEMINI_API_KEY: str = ""
+
     # CORS Configuration
     CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173"
 
