@@ -6,9 +6,9 @@ from typing import List
 from backend.database.session import get_db
 from backend.models.user import User
 from backend.routes.auth import get_current_user
-from backend.schemas.terraform import TerraformFileResponse, TerraformResourceResponse, SecurityFindingResponse
+from backend.schemas.terraform import TerraformFileResponse, TerraformResourceResponse, SecurityFindingResponse, CostFindingResponse
 from backend.services import terraform_service
-from backend.models.terraform import SecurityFinding
+from backend.models.terraform import SecurityFinding, CostFinding
 from backend.services.report_service import generate_pdf_report
 
 router = APIRouter(prefix="/api", tags=["Terraform Analyzer"])
@@ -164,3 +164,68 @@ async def download_pdf_report(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate PDF compliance report: {str(e)}"
         )
+
+
+@router.post("/cost/analyze/{file_id}", response_model=List[CostFindingResponse])
+async def run_cost_optimization(
+    file_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Clears existing cost findings, executes the cost optimization engine, and saves new findings.
+    """
+    # Verify file ownership
+    file_record = terraform_service.get_file_by_id(db, file_id, current_user.id)
+    if not file_record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found or access denied."
+        )
+
+    # Delete existing findings
+    db.query(CostFinding).filter(CostFinding.file_id == file_id, CostFinding.user_id == current_user.id).delete()
+    db.commit()
+
+    # Run cost analysis
+    resources = terraform_service.get_file_resources(db, file_id, current_user.id)
+    try:
+        from backend.services.cost_service import run_cost_analysis
+        findings = run_cost_analysis(db=db, file_id=file_id, user_id=current_user.id, resources=resources)
+        return findings
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Cost analysis run failed: {str(e)}"
+        )
+
+
+@router.get("/cost/findings", response_model=List[CostFindingResponse])
+async def get_all_cost_findings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Returns all cost optimization findings discovered for the logged-in user.
+    """
+    return db.query(CostFinding).filter(CostFinding.user_id == current_user.id).order_by(CostFinding.created_at.desc()).all()
+
+
+@router.get("/cost/findings/{file_id}", response_model=List[CostFindingResponse])
+async def get_cost_findings_by_file(
+    file_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Returns cost optimization findings discovered in a specific Terraform file.
+    """
+    # Verify file ownership
+    file_record = terraform_service.get_file_by_id(db, file_id, current_user.id)
+    if not file_record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found or access denied."
+        )
+    return db.query(CostFinding).filter(CostFinding.file_id == file_id, CostFinding.user_id == current_user.id).order_by(CostFinding.created_at.desc()).all()
+

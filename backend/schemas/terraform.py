@@ -32,6 +32,22 @@ class SecurityFindingResponse(BaseModel):
         from_attributes = True
 
 
+class CostFindingResponse(BaseModel):
+    id: int
+    user_id: int
+    file_id: int
+    resource_name: str
+    resource_type: str
+    estimated_monthly_cost: float
+    title: str
+    description: str
+    recommendation: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class TerraformFileResponse(BaseModel):
     id: int
     user_id: int
@@ -41,7 +57,9 @@ class TerraformFileResponse(BaseModel):
     status: str
     resources: List[TerraformResourceResponse] = []
     findings: List[SecurityFindingResponse] = []
+    cost_findings: List[CostFindingResponse] = []
 
     class Config:
         from_attributes = True
+
 

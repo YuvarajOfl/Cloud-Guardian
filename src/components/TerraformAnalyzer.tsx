@@ -14,7 +14,8 @@ import {
   ChevronRight,
   Database,
   ShieldAlert,
-  FileText
+  FileText,
+  DollarSign
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -26,11 +27,13 @@ export function TerraformAnalyzer() {
   const [files, setFiles] = useState<TerraformFile[]>([]);
   const [resources, setResources] = useState<TerraformResource[]>([]);
   const [findings, setFindings] = useState<any[]>([]);
+  const [costFindings, setCostFindings] = useState<any[]>([]);
   
   // Loading & Action State
   const [loadingFiles, setLoadingFiles] = useState<boolean>(true);
   const [loadingResources, setLoadingResources] = useState<boolean>(true);
   const [loadingFindings, setLoadingFindings] = useState<boolean>(true);
+  const [loadingCostFindings, setLoadingCostFindings] = useState<boolean>(true);
   const [uploading, setUploading] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [dragOver, setDragOver] = useState<boolean>(false);
@@ -46,8 +49,13 @@ export function TerraformAnalyzer() {
   const [activeTab, setActiveTab] = useState<'inventory' | 'findings'>('inventory');
   const [findingsSearchTerm, setFindingsSearchTerm] = useState<string>('');
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
+  
+  // Cost Search & Filter State
+  const [costSearchTerm, setCostSearchTerm] = useState<string>('');
 
+  // Pagination states
   const [currentPage, setCurrentPage] = useState<number>(1);
+  const [costCurrentPage, setCostCurrentPage] = useState<number>(1);
   const itemsPerPage = 10;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -126,6 +134,32 @@ export function TerraformAnalyzer() {
     }
   };
 
+  // Fetch Cost Findings from Backend
+  const fetchCostFindings = async (silent = false) => {
+    if (!silent) setLoadingCostFindings(true);
+    try {
+      const url = selectedFileId === 'all' 
+        ? `${API_URL}/api/cost/findings` 
+        : `${API_URL}/api/cost/findings/${selectedFileId}`;
+        
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setCostFindings(data);
+      } else {
+        console.error('Failed to fetch cost findings.');
+      }
+    } catch (err) {
+      console.error('Network error fetching cost findings:', err);
+    } finally {
+      if (!silent) setLoadingCostFindings(false);
+    }
+  };
+
   // Handle PDF report generation and download
   const handleDownloadReport = async (fileId: number, fileName: string) => {
     try {
@@ -160,13 +194,16 @@ export function TerraformAnalyzer() {
     fetchFiles();
     fetchResources();
     fetchFindings();
+    fetchCostFindings();
   }, [token]);
 
-  // Refetch resources & findings whenever selected file filter changes
+  // Refetch resources, findings & cost findings whenever selected file filter changes
   useEffect(() => {
     fetchResources();
     fetchFindings();
+    fetchCostFindings();
     setCurrentPage(1); // Reset page on filter update
+    setCostCurrentPage(1);
   }, [selectedFileId]);
 
   // Trigger temporary notification banner
@@ -248,6 +285,7 @@ export function TerraformAnalyzer() {
         fetchFiles(true);
         fetchResources(true);
         fetchFindings(true);
+        fetchCostFindings(true);
       } else {
         try {
           const errData = JSON.parse(xhr.responseText);
@@ -287,6 +325,7 @@ export function TerraformAnalyzer() {
           fetchFiles(true);
           fetchResources(true);
           fetchFindings(true);
+          fetchCostFindings(true);
         }
       } else {
         triggerMessage('error', 'Failed to delete file.');
@@ -301,6 +340,7 @@ export function TerraformAnalyzer() {
     fetchFiles();
     fetchResources();
     fetchFindings();
+    fetchCostFindings();
   };
 
   // Derived Filter Options
@@ -325,7 +365,7 @@ export function TerraformAnalyzer() {
     return matchSearch && matchProvider && matchType;
   });
 
-  // Filtered findings list
+  // Filtered security findings list
   const filteredFindings = findings.filter(f => {
     const matchSearch = findingsSearchTerm === '' ||
       f.title.toLowerCase().includes(findingsSearchTerm.toLowerCase()) ||
@@ -339,10 +379,28 @@ export function TerraformAnalyzer() {
     return matchSearch && matchSeverity;
   });
 
+  // Filtered cost findings list
+  const filteredCostFindings = costFindings.filter(f => {
+    const matchSearch = costSearchTerm === '' ||
+      f.title.toLowerCase().includes(costSearchTerm.toLowerCase()) ||
+      f.description.toLowerCase().includes(costSearchTerm.toLowerCase()) ||
+      f.recommendation.toLowerCase().includes(costSearchTerm.toLowerCase()) ||
+      f.resource_name.toLowerCase().includes(costSearchTerm.toLowerCase()) ||
+      f.resource_type.toLowerCase().includes(costSearchTerm.toLowerCase());
+      
+    return matchSearch;
+  });
+
+  // Potential Monthly Savings
+  const potentialSavings = costFindings.reduce((acc, curr) => acc + (curr.estimated_monthly_cost || 0), 0);
+
   // Pagination bounds
   const totalItems = activeTab === 'inventory' ? filteredResources.length : filteredFindings.length;
   const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
   
+  const costTotalItems = filteredCostFindings.length;
+  const costTotalPages = Math.ceil(costTotalItems / itemsPerPage) || 1;
+
   const paginatedResources = filteredResources.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
@@ -351,6 +409,11 @@ export function TerraformAnalyzer() {
   const paginatedFindings = filteredFindings.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
+  );
+
+  const paginatedCostFindings = filteredCostFindings.slice(
+    (costCurrentPage - 1) * itemsPerPage,
+    costCurrentPage * itemsPerPage
   );
 
   return (
@@ -363,7 +426,7 @@ export function TerraformAnalyzer() {
             Terraform Analysis
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Upload your Terraform state files to automatically parse and catalog your cloud infrastructure inventory.
+            Upload your Terraform state files to automatically parse, catalog, audit, and estimate infrastructure optimization opportunities.
           </p>
         </div>
         <button 
@@ -371,9 +434,48 @@ export function TerraformAnalyzer() {
           className="p-2 bg-white/5 border border-white/10 hover:bg-white/10 text-slate-350 rounded-lg hover:text-white transition-all cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
           title="Refresh Catalog"
         >
-          <RefreshCw className={`h-3.5 w-3.5 ${loadingFiles || loadingResources ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`h-3.5 w-3.5 ${loadingFiles || loadingResources || loadingFindings || loadingCostFindings ? 'animate-spin' : ''}`} />
           <span>Refresh Catalog</span>
         </button>
+      </div>
+
+      {/* Summary Panel */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Total Resources */}
+        <div className="p-5 bg-slate-900/20 border border-white/5 rounded-2xl flex flex-col justify-between min-h-[100px] shadow-xl relative overflow-hidden">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-slate-500">Total Resources</span>
+          <span className="text-2xl font-extrabold text-white mt-2 font-mono">
+            {loadingResources ? "..." : resources.length}
+          </span>
+          <div className="absolute top-0 right-0 p-2 font-mono text-[30px] text-white/[0.01] pointer-events-none select-none font-bold">RESOURCES</div>
+        </div>
+
+        {/* Security Findings */}
+        <div className="p-5 bg-slate-900/20 border border-white/5 rounded-2xl flex flex-col justify-between min-h-[100px] shadow-xl relative overflow-hidden">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-slate-500">Security Findings</span>
+          <span className={`text-2xl font-extrabold mt-2 font-mono ${findings.length > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+            {loadingFindings ? "..." : findings.length}
+          </span>
+          <div className="absolute top-0 right-0 p-2 font-mono text-[30px] text-white/[0.01] pointer-events-none select-none font-bold">SECURITY</div>
+        </div>
+
+        {/* Cost Findings */}
+        <div className="p-5 bg-slate-900/20 border border-white/5 rounded-2xl flex flex-col justify-between min-h-[100px] shadow-xl relative overflow-hidden">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-slate-500">Cost Findings</span>
+          <span className={`text-2xl font-extrabold mt-2 font-mono ${costFindings.length > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+            {loadingCostFindings ? "..." : costFindings.length}
+          </span>
+          <div className="absolute top-0 right-0 p-2 font-mono text-[30px] text-white/[0.01] pointer-events-none select-none font-bold">COSTS</div>
+        </div>
+
+        {/* Potential Savings */}
+        <div className="p-5 bg-slate-900/20 border border-white/5 rounded-2xl flex flex-col justify-between min-h-[100px] shadow-xl relative overflow-hidden">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-slate-500">Potential Savings</span>
+          <span className={`text-2xl font-extrabold mt-2 font-mono ${potentialSavings > 0 ? 'text-emerald-400' : 'text-slate-400'}`}>
+            {loadingCostFindings ? "..." : `$${potentialSavings.toFixed(2)}/mo`}
+          </span>
+          <div className="absolute top-0 right-0 p-2 font-mono text-[30px] text-white/[0.01] pointer-events-none select-none font-bold">SAVINGS</div>
+        </div>
       </div>
 
       {/* Upload Zone & Alerts */}
@@ -422,7 +524,7 @@ export function TerraformAnalyzer() {
           <h3 className="text-sm font-bold text-slate-200">
             Drag & drop your Terraform state file here
           </h3>
-          <p className="text-[11px] text-slate-555 mt-1 max-w-sm leading-normal">
+          <p className="text-[11px] text-slate-500 mt-1 max-w-sm leading-normal">
             Accepts <code className="text-slate-300">terraform.tfstate</code>, <code className="text-slate-300">.tfstate</code>, and <code className="text-slate-300">.json</code> formats (Max size: 20MB). Or click to browse.
           </p>
 
@@ -446,148 +548,147 @@ export function TerraformAnalyzer() {
         </div>
       </div>
 
-      {/* Grid: Left - Recent Uploads, Right - Inventory or Full width sections */}
-      <div className="grid grid-cols-1 gap-8">
-        
-        {/* Recent Uploads Section */}
-        <div className="bg-slate-900/20 border border-white/5 rounded-2xl overflow-hidden shadow-xl">
-          <div className="p-5 border-b border-white/5 flex items-center justify-between">
-            <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-450 flex items-center gap-2">
-              <FileCode className="h-4 w-4 text-indigo-400" />
-              <span>Recent Uploaded State Files</span>
-            </span>
-            <span className="text-[10px] text-slate-500 font-mono">
-              Total: {files.length}
-            </span>
-          </div>
-
-          {loadingFiles ? (
-            <div className="p-12 flex flex-col items-center justify-center gap-3">
-              <div className="h-6 w-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-xs font-mono text-slate-500">Retrieving state history...</span>
-            </div>
-          ) : files.length === 0 ? (
-            <div className="p-12 text-center">
-              <p className="text-slate-450 text-xs font-semibold">No Terraform files uploaded yet.</p>
-              <p className="text-slate-600 text-[10px] max-w-xs mx-auto leading-normal mt-1">
-                Upload your JSON tfstate files above to view them here and populate your inventory.
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-white/5 bg-slate-950/40 text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono">
-                    <th className="py-3 px-6">File Name</th>
-                    <th className="py-3 px-6">Type</th>
-                    <th className="py-3 px-6">Upload Time</th>
-                    <th className="py-3 px-6">Status</th>
-                    <th className="py-3 px-6 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/[0.02]">
-                  {files.map((file) => (
-                    <tr key={file.id} className="hover:bg-white/[0.01] transition-all text-xs text-slate-350">
-                      <td className="py-3 px-6 font-semibold text-slate-200">
-                        {file.file_name}
-                      </td>
-                      <td className="py-3 px-6 font-mono text-[10px] uppercase text-slate-450">
-                        {file.file_type}
-                      </td>
-                      <td className="py-3 px-6 font-mono text-slate-500">
-                        {new Date(file.upload_time).toLocaleString()}
-                      </td>
-                      <td className="py-3 px-6">
-                        {file.status === 'parsed' ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                            Parsed
-                          </span>
-                        ) : file.status === 'failed' ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                            Failed
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-semibold bg-blue-500/10 text-blue-450 border border-blue-500/20">
-                            {file.status}
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3 px-6 text-right flex items-center justify-end gap-2">
-                        {file.status === 'parsed' && (
-                          <button
-                            onClick={() => handleDownloadReport(file.id, file.file_name)}
-                            className="p-1.5 hover:bg-blue-500/10 border border-white/5 hover:border-blue-900/30 text-slate-400 hover:text-blue-400 rounded-lg transition-colors cursor-pointer"
-                            title="Download PDF Compliance Report"
-                          >
-                            <FileText className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleDelete(file.id, file.file_name)}
-                          className="p-1.5 hover:bg-rose-500/10 border border-white/5 hover:border-rose-900/30 text-slate-400 hover:text-rose-450 rounded-lg transition-colors cursor-pointer"
-                          title="Delete File & Resources"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+      {/* Recent Uploads Section */}
+      <div className="bg-slate-900/20 border border-white/5 rounded-2xl overflow-hidden shadow-xl">
+        <div className="p-5 border-b border-white/5 flex items-center justify-between">
+          <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-450 flex items-center gap-2">
+            <FileCode className="h-4 w-4 text-indigo-400" />
+            <span>Recent Uploaded State Files</span>
+          </span>
+          <span className="text-[10px] text-slate-550 font-mono">
+            Total: {files.length}
+          </span>
         </div>
 
-        {/* Resource / Findings Tabbed View */}
-        <div className="bg-slate-900/20 border border-white/5 rounded-2xl overflow-hidden shadow-xl">
-          
-          {/* Header with Tabs and File Filter */}
-          <div className="p-5 border-b border-white/5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => { setActiveTab('inventory'); setCurrentPage(1); }}
-                className={`flex items-center gap-2 text-xs font-mono font-bold uppercase tracking-wider transition-all cursor-pointer py-1.5 px-3 rounded-lg ${
-                  activeTab === 'inventory' 
-                    ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20' 
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
-                }`}
-              >
-                <Database className="h-3.5 w-3.5" />
-                <span>Cloud Inventory ({resources.length})</span>
-              </button>
-              
-              <button
-                onClick={() => { setActiveTab('findings'); setCurrentPage(1); }}
-                className={`flex items-center gap-2 text-xs font-mono font-bold uppercase tracking-wider transition-all cursor-pointer py-1.5 px-3 rounded-lg ${
-                  activeTab === 'findings' 
-                    ? 'text-rose-400 bg-rose-500/10 border border-rose-500/20' 
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
-                }`}
-              >
-                <ShieldAlert className="h-3.5 w-3.5" />
-                <span>Security Findings ({findings.length})</span>
-              </button>
-            </div>
-            
-            {/* File Filter Dropdown */}
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-slate-500">Filter File:</span>
-              <select
-                value={selectedFileId}
-                onChange={(e) => setSelectedFileId(e.target.value)}
-                className="bg-slate-950 border border-white/10 rounded-lg py-1 px-3.5 text-slate-300 text-xs focus:border-blue-500 focus:outline-none"
-              >
-                <option value="all">All Uploaded Files</option>
-                {files.filter(f => f.status === 'parsed').map(f => (
-                  <option key={f.id} value={f.id}>{f.file_name}</option>
-                ))}
-              </select>
-            </div>
+        {loadingFiles ? (
+          <div className="p-12 flex flex-col items-center justify-center gap-3">
+            <div className="h-6 w-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <span className="text-xs font-mono text-slate-500">Retrieving state history...</span>
           </div>
+        ) : files.length === 0 ? (
+          <div className="p-12 text-center">
+            <p className="text-slate-450 text-xs font-semibold">No Terraform files uploaded yet.</p>
+            <p className="text-slate-600 text-[10px] max-w-xs mx-auto leading-normal mt-1">
+              Upload your JSON tfstate files above to view them here and populate your inventory.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-white/5 bg-slate-950/40 text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono">
+                  <th className="py-3 px-6">File Name</th>
+                  <th className="py-3 px-6">Type</th>
+                  <th className="py-3 px-6">Upload Time</th>
+                  <th className="py-3 px-6">Status</th>
+                  <th className="py-3 px-6 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.02]">
+                {files.map((file) => (
+                  <tr key={file.id} className="hover:bg-white/[0.01] transition-all text-xs text-slate-350">
+                    <td className="py-3 px-6 font-semibold text-slate-200">
+                      {file.file_name}
+                    </td>
+                    <td className="py-3 px-6 font-mono text-[10px] uppercase text-slate-450">
+                      {file.file_type}
+                    </td>
+                    <td className="py-3 px-6 font-mono text-slate-500">
+                      {new Date(file.upload_time).toLocaleString()}
+                    </td>
+                    <td className="py-3 px-6">
+                      {file.status === 'parsed' ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          Parsed
+                        </span>
+                      ) : file.status === 'failed' ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                          Failed
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-semibold bg-blue-500/10 text-blue-450 border border-blue-500/20">
+                          {file.status}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 px-6 text-right flex items-center justify-end gap-2">
+                      {file.status === 'parsed' && (
+                        <button
+                          onClick={() => handleDownloadReport(file.id, file.file_name)}
+                          className="p-1.5 hover:bg-blue-500/10 border border-white/5 hover:border-blue-900/30 text-slate-400 hover:text-blue-400 rounded-lg transition-colors cursor-pointer"
+                          title="Download PDF Compliance Report"
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDelete(file.id, file.file_name)}
+                        className="p-1.5 hover:bg-rose-500/10 border border-white/5 hover:border-rose-900/30 text-slate-400 hover:text-rose-450 rounded-lg transition-colors cursor-pointer"
+                        title="Delete File & Resources"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
-          {/* Search and Filters Controls */}
-          <div className="p-5 border-b border-white/5 bg-slate-950/20">
-            {activeTab === 'inventory' ? (
+      {/* Resource / Findings Tabbed View */}
+      <div className="bg-slate-900/20 border border-white/5 rounded-2xl overflow-hidden shadow-xl">
+        
+        {/* Header with Tabs and File Filter */}
+        <div className="p-5 border-b border-white/5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => { setActiveTab('inventory'); setCurrentPage(1); }}
+              className={`flex items-center gap-2 text-xs font-mono font-bold uppercase tracking-wider transition-all cursor-pointer py-1.5 px-3 rounded-lg ${
+                activeTab === 'inventory' 
+                  ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20' 
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+              }`}
+            >
+              <Database className="h-3.5 w-3.5" />
+              <span>Cloud Inventory ({resources.length})</span>
+            </button>
+            
+            <button
+              onClick={() => { setActiveTab('findings'); setCurrentPage(1); setCostCurrentPage(1); }}
+              className={`flex items-center gap-2 text-xs font-mono font-bold uppercase tracking-wider transition-all cursor-pointer py-1.5 px-3 rounded-lg ${
+                activeTab === 'findings' 
+                  ? 'text-rose-400 bg-rose-500/10 border border-rose-500/20' 
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+              }`}
+            >
+              <ShieldAlert className="h-3.5 w-3.5" />
+              <span>Security & Cost Findings ({findings.length + costFindings.length})</span>
+            </button>
+          </div>
+          
+          {/* File Filter Dropdown */}
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-slate-500">Filter File:</span>
+            <select
+              value={selectedFileId}
+              onChange={(e) => setSelectedFileId(e.target.value)}
+              className="bg-slate-950 border border-white/10 rounded-lg py-1 px-3.5 text-slate-300 text-xs focus:border-blue-500 focus:outline-none"
+            >
+              <option value="all">All Uploaded Files</option>
+              {files.filter(f => f.status === 'parsed').map(f => (
+                <option key={f.id} value={f.id}>{f.file_name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Conditional Tab Rendering */}
+        {activeTab === 'inventory' ? (
+          <div>
+            {/* Search and Filters Controls */}
+            <div className="p-5 border-b border-white/5 bg-slate-950/20">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {/* Search Input */}
                 <div className="relative">
@@ -646,52 +747,9 @@ export function TerraformAnalyzer() {
                   </select>
                 </div>
               </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Search Input for Findings */}
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Search className="h-3.5 w-3.5 text-slate-500" />
-                  </span>
-                  <input
-                    type="text"
-                    placeholder="Search findings by title, description, or resource..."
-                    value={findingsSearchTerm}
-                    onChange={(e) => {
-                      setFindingsSearchTerm(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full pl-9 pr-4 py-1.5 bg-slate-950 border border-white/10 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:border-rose-500 focus:outline-none"
-                  />
-                </div>
+            </div>
 
-                {/* Severity Filter */}
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Filter className="h-3.5 w-3.5 text-slate-500" />
-                  </span>
-                  <select
-                    value={selectedSeverity}
-                    onChange={(e) => {
-                      setSelectedSeverity(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full pl-9 pr-4 py-1.5 bg-slate-950 border border-white/10 rounded-lg text-xs text-slate-300 focus:border-rose-500 focus:outline-none cursor-pointer"
-                  >
-                    <option value="all">All Severities</option>
-                    <option value="Critical">Critical</option>
-                    <option value="High">High</option>
-                    <option value="Medium">Medium</option>
-                    <option value="Low">Low</option>
-                  </select>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Conditional Table Rendering */}
-          {activeTab === 'inventory' ? (
-            loadingResources ? (
+            {loadingResources ? (
               <div className="p-16 flex flex-col items-center justify-center gap-3">
                 <div className="h-7 w-7 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin" />
                 <span className="text-xs font-mono text-slate-500">Analyzing cloud schema...</span>
@@ -751,108 +809,257 @@ export function TerraformAnalyzer() {
                 </div>
 
                 {/* Shared Pagination Controls */}
-                {renderPaginationControls()}
+                {renderPaginationControls(currentPage, totalPages, setCurrentPage, totalItems)}
               </div>
-            )
-          ) : (
-            /* Findings Tab View */
-            loadingFindings ? (
-              <div className="p-16 flex flex-col items-center justify-center gap-3">
-                <div className="h-7 w-7 border-3 border-rose-500 border-t-transparent rounded-full animate-spin" />
-                <span className="text-xs font-mono text-slate-500">Running compliance audit...</span>
+            )}
+          </div>
+        ) : (
+          /* Findings Tab View */
+          <div className="divide-y divide-white/5">
+            {/* Section 1: Security Findings */}
+            <div>
+              <div className="p-4 bg-slate-950/40 border-b border-white/5 flex justify-between items-center">
+                <span className="text-xs font-mono font-bold uppercase tracking-widest text-rose-400 flex items-center gap-1.5">
+                  <ShieldAlert className="h-4 w-4 text-rose-400" />
+                  <span>Security Vulnerability Audit</span>
+                </span>
+                <span className="text-[10px] text-slate-500 font-mono">
+                  Issues: {filteredFindings.length}
+                </span>
               </div>
-            ) : totalItems === 0 ? (
-              <div className="p-16 text-center space-y-2">
-                <div className="inline-flex p-3 bg-emerald-500/10 text-emerald-400 rounded-xl mb-2">
-                  <CheckCircle2 className="h-6 w-6" />
-                </div>
-                <p className="text-slate-200 text-xs font-bold">No security vulnerabilities found.</p>
-                <p className="text-slate-500 text-[10px] max-w-sm mx-auto leading-normal">
-                  Your uploaded configurations passed all integrated security rule reviews successfully.
-                </p>
-              </div>
-            ) : (
-              <div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-white/5 bg-slate-950/40 text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono">
-                        <th className="py-3 px-6">Severity</th>
-                        <th className="py-3 px-6">Vulnerability / Resource</th>
-                        <th className="py-3 px-6">Description</th>
-                        <th className="py-3 px-6">Remediation Recommendation</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/[0.02]">
-                      {paginatedFindings.map((finding) => (
-                        <tr key={finding.id} className="hover:bg-white/[0.01] transition-all text-xs text-slate-350 align-top">
-                          <td className="py-4 px-6 shrink-0">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
-                              finding.severity === 'Critical' 
-                                ? 'bg-rose-500/15 text-rose-400 border border-rose-500/20' 
-                                : finding.severity === 'High' 
-                                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/20' 
-                                : finding.severity === 'Medium' 
-                                ? 'bg-yellow-500/15 text-yellow-300 border border-yellow-500/20' 
-                                : 'bg-blue-500/15 text-blue-400 border border-blue-500/20'
-                            }`}>
-                              {finding.severity}
-                            </span>
-                          </td>
-                          <td className="py-4 px-6 max-w-[200px]">
-                            <div className="font-bold text-slate-200 leading-snug">{finding.title}</div>
-                            <div className="text-[10px] text-slate-500 font-mono mt-1 select-all truncate" title={finding.resource_name}>
-                              {finding.resource_name}
-                            </div>
-                            <div className="text-[8px] text-slate-600 font-mono uppercase tracking-wide mt-0.5">
-                              Type: {finding.resource_type}
-                            </div>
-                          </td>
-                          <td className="py-4 px-6 text-slate-400 leading-relaxed max-w-[320px]">
-                            {finding.description}
-                          </td>
-                          <td className="py-4 px-6 bg-white/[0.01] text-slate-300 leading-relaxed max-w-[320px]">
-                            <span className="text-[9px] font-bold text-slate-400 block mb-1 uppercase tracking-widest font-mono">Action Item:</span>
-                            {finding.recommendation}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+
+              {/* Security Filters */}
+              <div className="p-5 bg-slate-950/20 border-b border-white/5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Search className="h-3.5 w-3.5 text-slate-500" />
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Search security findings by title, description..."
+                    value={findingsSearchTerm}
+                    onChange={(e) => {
+                      setFindingsSearchTerm(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="w-full pl-9 pr-4 py-1.5 bg-slate-950 border border-white/10 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:border-rose-500 focus:outline-none"
+                  />
                 </div>
 
-                {/* Shared Pagination Controls */}
-                {renderPaginationControls()}
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Filter className="h-3.5 w-3.5 text-slate-500" />
+                  </span>
+                  <select
+                    value={selectedSeverity}
+                    onChange={(e) => {
+                      setSelectedSeverity(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="w-full pl-9 pr-4 py-1.5 bg-slate-950 border border-white/10 rounded-lg text-xs text-slate-300 focus:border-rose-500 focus:outline-none cursor-pointer"
+                  >
+                    <option value="all">All Severities</option>
+                    <option value="Critical">Critical</option>
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
+                  </select>
+                </div>
               </div>
-            )
-          )}
-        </div>
+
+              {loadingFindings ? (
+                <div className="p-16 flex flex-col items-center justify-center gap-3">
+                  <div className="h-7 w-7 border-3 border-rose-500 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-xs font-mono text-slate-500">Running compliance audit...</span>
+                </div>
+              ) : filteredFindings.length === 0 ? (
+                <div className="p-12 text-center space-y-2">
+                  <div className="inline-flex p-3 bg-emerald-500/10 text-emerald-400 rounded-xl mb-2">
+                    <CheckCircle2 className="h-6 w-6" />
+                  </div>
+                  <p className="text-slate-200 text-xs font-bold">No security vulnerabilities found.</p>
+                  <p className="text-slate-500 text-[10px] max-w-sm mx-auto leading-normal">
+                    Your uploaded configurations passed all integrated security rule reviews successfully.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-white/5 bg-slate-950/40 text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono">
+                          <th className="py-3 px-6">Severity</th>
+                          <th className="py-3 px-6">Vulnerability / Resource</th>
+                          <th className="py-3 px-6">Description</th>
+                          <th className="py-3 px-6">Remediation Recommendation</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/[0.02]">
+                        {paginatedFindings.map((finding) => (
+                          <tr key={finding.id} className="hover:bg-white/[0.01] transition-all text-xs text-slate-350 align-top">
+                            <td className="py-4 px-6 shrink-0">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
+                                finding.severity === 'Critical' 
+                                  ? 'bg-rose-500/15 text-rose-400 border border-rose-500/20' 
+                                  : finding.severity === 'High' 
+                                  ? 'bg-amber-500/15 text-amber-400 border border-amber-500/20' 
+                                  : finding.severity === 'Medium' 
+                                  ? 'bg-yellow-500/15 text-yellow-300 border border-yellow-500/20' 
+                                  : 'bg-blue-500/15 text-blue-400 border border-blue-500/20'
+                              }`}>
+                                {finding.severity}
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 max-w-[200px]">
+                              <div className="font-bold text-slate-200 leading-snug">{finding.title}</div>
+                              <div className="text-[10px] text-slate-500 font-mono mt-1 select-all truncate" title={finding.resource_name}>
+                                {finding.resource_name}
+                              </div>
+                              <div className="text-[8px] text-slate-600 font-mono uppercase tracking-wide mt-0.5">
+                                Type: {finding.resource_type}
+                              </div>
+                            </td>
+                            <td className="py-4 px-6 text-slate-400 leading-relaxed max-w-[320px]">
+                              {finding.description}
+                            </td>
+                            <td className="py-4 px-6 bg-white/[0.01] text-slate-300 leading-relaxed max-w-[320px]">
+                              <span className="text-[9px] font-bold text-slate-400 block mb-1 uppercase tracking-widest font-mono">Action Item:</span>
+                              {finding.recommendation}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {renderPaginationControls(currentPage, totalPages, setCurrentPage, totalItems)}
+                </div>
+              )}
+            </div>
+
+            {/* Section 2: Cost Optimization Findings */}
+            <div>
+              <div className="p-4 bg-slate-950/40 border-b border-white/5 flex justify-between items-center">
+                <span className="text-xs font-mono font-bold uppercase tracking-widest text-emerald-450 text-emerald-450 flex items-center gap-1.5">
+                  <DollarSign className="h-4 w-4 text-emerald-400" />
+                  <span>Cost Optimization Findings</span>
+                </span>
+                <span className="text-[10px] text-slate-500 font-mono">
+                  Opportunities: {filteredCostFindings.length}
+                </span>
+              </div>
+
+              {/* Cost Filters */}
+              <div className="p-5 bg-slate-950/20 border-b border-white/5 grid grid-cols-1 gap-4">
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Search className="h-3.5 w-3.5 text-slate-500" />
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Search cost findings by name, type, issue..."
+                    value={costSearchTerm}
+                    onChange={(e) => {
+                      setCostSearchTerm(e.target.value);
+                      setCostCurrentPage(1);
+                    }}
+                    className="w-full pl-9 pr-4 py-1.5 bg-slate-950 border border-white/10 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {loadingCostFindings ? (
+                <div className="p-16 flex flex-col items-center justify-center gap-3">
+                  <div className="h-7 w-7 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-xs font-mono text-slate-500">Analyzing cost profiles...</span>
+                </div>
+              ) : filteredCostFindings.length === 0 ? (
+                <div className="p-16 text-center space-y-2">
+                  <div className="inline-flex p-3 bg-emerald-500/10 text-emerald-400 rounded-xl mb-2">
+                    <CheckCircle2 className="h-6 w-6" />
+                  </div>
+                  <p className="text-slate-200 text-xs font-bold">No cost optimization opportunities detected.</p>
+                  <p className="text-slate-500 text-[10px] max-w-sm mx-auto leading-normal">
+                    Your configurations passed all integrated cloud spending reviews successfully.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-white/5 bg-slate-950/40 text-[9px] font-bold text-slate-500 uppercase tracking-widest font-mono">
+                          <th className="py-3 px-6">Resource</th>
+                          <th className="py-3 px-6">Type</th>
+                          <th className="py-3 px-6">Estimated Cost Impact</th>
+                          <th className="py-3 px-6">Issue</th>
+                          <th className="py-3 px-6">Recommendation</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/[0.02]">
+                        {paginatedCostFindings.map((finding) => (
+                          <tr key={finding.id} className="hover:bg-white/[0.01] transition-all text-xs text-slate-350 align-top">
+                            <td className="py-4 px-6 max-w-[200px] font-semibold text-slate-200">
+                              {finding.resource_name}
+                            </td>
+                            <td className="py-4 px-6 font-mono text-[10px] text-slate-400">
+                              {finding.resource_type}
+                            </td>
+                            <td className="py-4 px-6 shrink-0">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                -${finding.estimated_monthly_cost.toFixed(2)}/mo
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-slate-400 leading-relaxed max-w-[320px]">
+                              <div className="font-bold text-slate-200 leading-snug">{finding.title}</div>
+                              <div className="text-[10px] text-slate-500 font-mono mt-1">{finding.description}</div>
+                            </td>
+                            <td className="py-4 px-6 bg-white/[0.01] text-slate-350 leading-relaxed max-w-[320px]">
+                              {finding.recommendation}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {renderPaginationControls(costCurrentPage, costTotalPages, setCostCurrentPage, costTotalItems)}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 
   // Render pagination control blocks helper
-  function renderPaginationControls() {
+  function renderPaginationControls(
+    currPage: number,
+    totalPgs: number,
+    setPage: React.Dispatch<React.SetStateAction<number>>,
+    totalCount: number
+  ) {
     return (
       <div className="p-4 border-t border-white/5 bg-slate-950/20 flex items-center justify-between">
         <span className="text-[10px] text-slate-550 font-mono">
-          Showing {totalItems === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} items
+          Showing {totalCount === 0 ? 0 : (currPage - 1) * itemsPerPage + 1} to {Math.min(currPage * itemsPerPage, totalCount)} of {totalCount} items
         </span>
         
         <div className="flex items-center gap-1.5">
           <button
-            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-            disabled={currentPage === 1}
+            onClick={() => setPage(prev => Math.max(prev - 1, 1))}
+            disabled={currPage === 1}
             className="p-1.5 bg-white/5 border border-white/10 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-all disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
           <span className="text-[10px] text-slate-400 font-mono font-semibold px-2">
-            Page {currentPage} of {totalPages}
+            Page {currPage} of {totalPgs}
           </span>
           <button
-            onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-            disabled={currentPage === totalPages}
+            onClick={() => setPage(prev => Math.min(prev + 1, totalPgs))}
+            disabled={currPage === totalPgs}
             className="p-1.5 bg-white/5 border border-white/10 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-all disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
           >
             <ChevronRight className="h-3.5 w-3.5" />

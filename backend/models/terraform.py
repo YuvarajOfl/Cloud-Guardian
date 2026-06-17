@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from backend.database.session import Base
@@ -17,6 +17,7 @@ class TerraformFile(Base):
     user = relationship("User", back_populates="files")
     resources = relationship("TerraformResource", back_populates="file", cascade="all, delete-orphan")
     findings = relationship("SecurityFinding", back_populates="file", cascade="all, delete-orphan")
+    cost_findings = relationship("CostFinding", back_populates="file", cascade="all, delete-orphan")
 
 
 class TerraformResource(Base):
@@ -51,4 +52,23 @@ class SecurityFinding(Base):
 
     # Relationships
     file = relationship("TerraformFile", back_populates="findings")
+
+
+class CostFinding(Base):
+    __tablename__ = "cost_findings"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    file_id = Column(Integer, ForeignKey("terraform_files.id", ondelete="CASCADE"), nullable=False)
+    resource_name = Column(String(255), nullable=False)
+    resource_type = Column(String(255), nullable=False)
+    estimated_monthly_cost = Column(Float, nullable=False)
+    title = Column(String(255), nullable=False)
+    description = Column(String(1024), nullable=False)
+    recommendation = Column(String(1024), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    file = relationship("TerraformFile", back_populates="cost_findings")
+
 

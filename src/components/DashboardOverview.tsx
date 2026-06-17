@@ -7,7 +7,8 @@ import {
   GitCompare, 
   FileText, 
   FileCode,
-  UserCheck
+  UserCheck,
+  Coins
 } from 'lucide-react';
 
 export function DashboardOverview() {
@@ -16,6 +17,8 @@ export function DashboardOverview() {
 
   const [filesCount, setFilesCount] = useState<number>(0);
   const [findingsCount, setFindingsCount] = useState<number>(0);
+  const [costFindingsCount, setCostFindingsCount] = useState<number>(0);
+  const [potentialSavings, setPotentialSavings] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -37,6 +40,15 @@ export function DashboardOverview() {
         if (findingsRes.ok) {
           const findingsData = await findingsRes.json();
           setFindingsCount(findingsData.length);
+        }
+        
+        // Fetch cost findings count
+        const costRes = await fetch(`${API_URL}/api/cost/findings`, { headers });
+        if (costRes.ok) {
+          const costData = await costRes.json();
+          setCostFindingsCount(costData.length);
+          const savings = costData.reduce((acc: number, item: any) => acc + (item.estimated_monthly_cost || 0), 0);
+          setPotentialSavings(savings);
         }
       } catch (err) {
         console.error("Failed to fetch dashboard stats", err);
@@ -139,16 +151,19 @@ export function DashboardOverview() {
             <div className="absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r from-rose-500 to-purple-500 opacity-0 group-hover:opacity-100 transition-opacity" />
           </div>
 
-          {/* state: Drift Results */}
-          <div className="p-5 bg-white/[0.01] border border-white/5 hover:border-white/10 rounded-2xl flex flex-col items-center justify-center text-center min-h-[160px] transition-all group relative overflow-hidden">
-            <div className="p-3 bg-white/5 text-slate-400 rounded-xl group-hover:scale-105 transition-transform mb-4">
-              <GitCompare className="h-5 w-5" />
+          {/* state: Cost Savings */}
+          <div 
+            onClick={() => navigate('/dashboard/analyzer')}
+            className="p-5 bg-white/[0.01] border border-white/5 hover:border-emerald-500/20 rounded-2xl flex flex-col items-center justify-center text-center min-h-[160px] transition-all group relative overflow-hidden cursor-pointer hover:bg-slate-900/25"
+          >
+            <div className="p-3 bg-white/5 text-slate-400 rounded-xl group-hover:scale-105 transition-transform mb-4 group-hover:text-emerald-400 group-hover:bg-emerald-500/10">
+              <Coins className="h-5 w-5" />
             </div>
-            <span className="text-xs font-bold text-slate-200">Drift Results</span>
+            <span className="text-xs font-bold text-slate-200">Cost Savings</span>
             <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed px-4 text-center">
-              Drift verification inactive
+              {loading ? "Loading..." : costFindingsCount > 0 ? `${costFindingsCount} Optimization(s) (-$${potentialSavings.toFixed(2)}/mo)` : "No savings opportunities"}
             </p>
-            <div className="absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r from-purple-500 to-pink-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+            <div className="absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-500 opacity-0 group-hover:opacity-100 transition-opacity" />
           </div>
 
           {/* state: Reports */}

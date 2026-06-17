@@ -9,7 +9,7 @@ from reportlab.platypus import (
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfgen import canvas
-from backend.models.terraform import TerraformFile, TerraformResource, SecurityFinding
+from backend.models.terraform import TerraformFile, TerraformResource, SecurityFinding, CostFinding
 
 logger = logging.getLogger("backend.services.report")
 
@@ -154,6 +154,9 @@ def generate_pdf_report(db: Session, tf_file: TerraformFile) -> BytesIO:
     # Gather counts
     resources = db.query(TerraformResource).filter(TerraformResource.file_id == tf_file.id).all()
     findings = db.query(SecurityFinding).filter(SecurityFinding.file_id == tf_file.id).all()
+    cost_findings = db.query(CostFinding).filter(CostFinding.file_id == tf_file.id).all()
+    
+    potential_savings = sum(f.estimated_monthly_cost for f in cost_findings)
     
     crit_count = sum(1 for f in findings if f.severity == "Critical")
     high_count = sum(1 for f in findings if f.severity == "High")
@@ -165,8 +168,10 @@ def generate_pdf_report(db: Session, tf_file: TerraformFile) -> BytesIO:
         [Paragraph("<b>File Name:</b>", meta_label), Paragraph(tf_file.file_name, normal_style),
          Paragraph("<b>Date Scanned:</b>", meta_label), Paragraph(tf_file.upload_time.strftime('%Y-%m-%d %H:%M'), normal_style)],
         [Paragraph("<b>Total Resources:</b>", meta_label), Paragraph(str(len(resources)), normal_style),
-         Paragraph("<b>Total Findings:</b>", meta_label), Paragraph(f"<b>{len(findings)}</b>", normal_style)]
-    ]
+         Paragraph("<b>Security Findings:</b>", meta_label), Paragraph(str(len(findings)), normal_style)],
+        [Paragraph("<b>Cost Findings:</b>", meta_label), Paragraph(str(len(cost_findings)), normal_style),
+         Paragraph("<b>Potential Savings:</b>", meta_label), Paragraph(f"<b>${potential_savings:.2f}/mo</b>", normal_style)]
+     ]
     
     meta_summary_table = Table(meta_summary_data, colWidths=[110, 142, 110, 142])
     meta_summary_table.setStyle(TableStyle([
@@ -297,6 +302,88 @@ def generate_pdf_report(db: Session, tf_file: TerraformFile) -> BytesIO:
             ]))
             
             # Keep header and details tables together to prevent breaking across pages
+            story.append(KeepTogether([
+                header_table,
+                details_table,
+                Spacer(1, 15)
+            ]))
+            
+    # Cost Findings Details
+    story.append(Paragraph("Cost Optimization Findings", section_heading))
+    
+    if not cost_findings:
+        no_cost_findings_style = ParagraphStyle(
+            'NoCostFindings',
+            parent=normal_style,
+            fontName='Helvetica-Bold',
+            fontSize=10,
+            textColor=colors.HexColor("#15803d") # Green
+        )
+        no_cost_table = Table([[Paragraph("✔ No cost optimization opportunities detected.", no_cost_findings_style)]], colWidths=[504])
+        no_cost_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#f0fdf4")),
+            ('PADDING', (0,0), (-1,-1), 10),
+            ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor("#bbf7d0")),
+        ]))
+        story.append(no_cost_table)
+    else:
+        for idx, finding in enumerate(cost_findings):
+            badge_style = ParagraphStyle(
+                f'CostBadge_{finding.id}',
+                parent=normal_style,
+                fontName='Helvetica-Bold',
+                fontSize=8,
+                leading=11,
+                textColor=colors.HexColor("#16a34a"), # Green 600
+                alignment=1
+            )
+            
+            finding_title_style = ParagraphStyle(
+                f'CostTitle_{finding.id}',
+                parent=normal_style,
+                fontName='Helvetica-Bold',
+                fontSize=10,
+                leading=14,
+                textColor=colors.HexColor("#0f172a")
+            )
+            
+            # Header table
+            badge_text = f"SAVINGS: ${finding.estimated_monthly_cost:.2f}/MO"
+            header_table = Table([
+                [Paragraph(finding.title, finding_title_style), Paragraph(badge_text, badge_style)]
+            ], colWidths=[354, 150])
+            
+            header_table.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#f0fdf4")), # Light green
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                ('PADDING', (0,0), (-1,-1), 6),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+                ('TOPPADDING', (0,0), (-1,-1), 8),
+                ('LEFTPADDING', (0,0), (0,0), 10),
+                ('RIGHTPADDING', (-1,-1), (-1,-1), 10),
+                ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#bbf7d0')),
+            ]))
+            
+            # Details block
+            details_data = [
+                [Paragraph("<b>Resource Name:</b>", meta_label), Paragraph(finding.resource_name, meta_val)],
+                [Paragraph("<b>Resource Type:</b>", meta_label), Paragraph(finding.resource_type, meta_val)],
+                [Paragraph("<b>Description:</b>", meta_label), Paragraph(finding.description, normal_style)],
+                [Paragraph("<b>Recommendation:</b>", meta_label), Paragraph(finding.recommendation, normal_style)],
+            ]
+            
+            details_table = Table(details_data, colWidths=[110, 394])
+            details_table.setStyle(TableStyle([
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('TOPPADDING', (0,0), (-1,-1), 5),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+                ('LEFTPADDING', (0,0), (-1,-1), 10),
+                ('RIGHTPADDING', (0,0), (-1,-1), 10),
+                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#f8fafc")),
+                ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+                ('LINEBELOW', (0,0), (-1,-2), 0.5, colors.HexColor('#f1f5f9')),
+            ]))
+            
             story.append(KeepTogether([
                 header_table,
                 details_table,
