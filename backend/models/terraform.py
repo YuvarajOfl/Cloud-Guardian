@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Float
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Float, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from backend.database.session import Base
@@ -99,5 +99,30 @@ class ReportHistory(Base):
     file = relationship("TerraformFile")
 
 
+class AIAnalysisCache(Base):
+    __tablename__ = "ai_analysis_cache"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    finding_hash = Column(String(64), unique=True, index=True, nullable=False)
+    finding_type = Column(String(50), nullable=False)
+    analysis = Column(Text, nullable=False)
+    why_this_matters = Column(Text, nullable=True)
+    business_impact = Column(Text, nullable=False)
+    recommended_fix = Column(Text, nullable=False)
+    terraform_fix = Column(Text, nullable=True)
+    best_practice = Column(Text, nullable=True)
+    source = Column(String(50), nullable=False) # "gemini" or "fallback"
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class AIFollowUpCache(Base):
+    __tablename__ = "ai_follow_up_cache"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    finding_type = Column(String(50), nullable=False)
+    resource_type = Column(String(255), nullable=False)
+    severity = Column(String(50), nullable=False)
+    question = Column(String(2048), nullable=False)
+    answer = Column(Text, nullable=False)
+    source = Column(String(50), nullable=False) # "gemini", "cache", "fallback"
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

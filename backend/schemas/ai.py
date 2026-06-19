@@ -12,3 +12,18 @@ class AIInsightResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class AIFollowUpRequest(BaseModel):
+    finding_id: Any
+    resource: str
+    severity: str
+    question: str
+    simulate_error: str = None
+
+
+class AIFollowUpResponse(BaseModel):
+    answer: str
+    source: str
+    mode: str
+

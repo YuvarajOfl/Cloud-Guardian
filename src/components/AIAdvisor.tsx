@@ -72,6 +72,56 @@ export function AIAdvisor() {
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // AI Follow-up states
+  const [questions, setQuestions] = useState<{ [findingId: number]: string }>({});
+  const [answers, setAnswers] = useState<{ [findingId: number]: { answer: string; source: string; mode?: string } }>({});
+  const [askingId, setAskingId] = useState<number | null>(null);
+  const [aiError, setAiError] = useState<{ [findingId: number]: string }>({});
+
+  const handleAskAI = async (findingId: number, resourceType: string, severity: string) => {
+    const question = questions[findingId]?.trim();
+    if (!question) return;
+
+    setAskingId(findingId);
+    setAiError(prev => ({ ...prev, [findingId]: '' }));
+
+    try {
+      const response = await fetch(`${API_URL}/api/ai/ask`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          finding_id: findingId,
+          resource: resourceType,
+          severity: severity,
+          question: question
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to retrieve answer from AI Advisor.');
+      }
+
+      const data = await response.json();
+      setAnswers(prev => ({
+        ...prev,
+        [findingId]: {
+          answer: data.answer,
+          source: data.source,
+          mode: data.mode
+        }
+      }));
+    } catch (err: any) {
+      console.error(err);
+      setAiError(prev => ({ ...prev, [findingId]: err.message || 'An error occurred while calling the AI Advisor.' }));
+    } finally {
+      setAskingId(null);
+    }
+  };
+
+
   const fetchFiles = async () => {
     try {
       const response = await fetch(`${API_URL}/api/files`, {
@@ -264,9 +314,16 @@ export function AIAdvisor() {
                         </div>
 
                         {insight ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-bold font-mono bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 uppercase">
-                            <Database className="h-3 w-3" />
-                            <span>Cached AI Insight</span>
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-extrabold font-mono border ${
+                            insight.response?.source === 'gemini'
+                              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                              : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                          } uppercase`}>
+                            {insight.response?.source === 'gemini' ? (
+                              <span>🟢 Live Gemini AI</span>
+                            ) : (
+                              <span>🟡 Cached Knowledge Base</span>
+                            )}
                           </span>
                         ) : (
                           <button
@@ -348,6 +405,107 @@ export function AIAdvisor() {
                             <p className="mt-1">{insight.response.best_practice}</p>
                           </div>
 
+                          {/* Ask AI Section */}
+                          <div className="border-t border-white/5 pt-4 mt-3.5 space-y-3 text-left">
+                            <div className="flex items-center gap-1.5 text-slate-350">
+                              <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
+                              <span className="text-xs font-bold font-mono uppercase tracking-wider">Ask AI About This Finding</span>
+                            </div>
+                            
+                            {/* Examples suggestions */}
+                            <div className="flex flex-wrap gap-1.5 text-[10px]">
+                              {[
+                                "Why is this dangerous?",
+                                "Show production Terraform fix",
+                                "Explain this for a junior engineer",
+                                "Give AWS best practices",
+                                "What is the business impact?",
+                                "How would an auditor view this?"
+                              ].map((ex) => (
+                                <button
+                                  key={ex}
+                                  type="button"
+                                  onClick={() => setQuestions(prev => ({ ...prev, [finding.id]: ex }))}
+                                  className="px-2.5 py-1 bg-white/5 hover:bg-white/10 hover:text-white rounded border border-white/5 transition-all text-left text-slate-400 cursor-pointer font-medium"
+                                >
+                                  {ex}
+                                </button>
+                              ))}
+                            </div>
+
+                            {/* Input and Submit Button */}
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                value={questions[finding.id] || ""}
+                                onChange={(e) => setQuestions(prev => ({ ...prev, [finding.id]: e.target.value }))}
+                                placeholder="Ask a question about this finding..."
+                                className="flex-1 px-3 py-1.5 bg-slate-950 border border-white/10 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-medium"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleAskAI(finding.id, finding.resource_type, finding.severity)}
+                                disabled={askingId === finding.id || !(questions[finding.id]?.trim())}
+                                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-950 disabled:text-slate-500 disabled:cursor-not-allowed rounded-lg text-white font-bold text-xs transition-colors cursor-pointer"
+                              >
+                                {askingId === finding.id ? "Analyzing..." : "Ask AI"}
+                              </button>
+                            </div>
+
+                            {/* AI Error Display */}
+                            {aiError[finding.id] && (
+                              <p className="text-[10px] text-rose-455 font-semibold">{aiError[finding.id]}</p>
+                            )}
+
+                            {/* AI Response Card */}
+                            {answers[finding.id] && (
+                              <div className="bg-slate-950/60 border border-white/5 rounded-xl p-4.5 space-y-2.5 mt-3.5 animate-fade-in text-left">
+                                <div className="flex justify-between items-center pb-2 border-b border-white/5">
+                                  <span className="text-[10px] font-bold font-mono uppercase tracking-wider text-slate-400">AI Response</span>
+                                  <div className="flex gap-2 items-center">
+                                    {answers[finding.id].mode && (
+                                      answers[finding.id].mode === 'general' ? (
+                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-extrabold font-mono border bg-teal-500/10 border-teal-500/20 text-teal-400">
+                                          <span>🌍 General AI Mode</span>
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-extrabold font-mono border bg-indigo-500/10 border-indigo-500/20 text-indigo-400">
+                                          <span>🔒 Finding Analysis Mode</span>
+                                        </span>
+                                      )
+                                    )}
+                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-extrabold font-mono border ${
+                                      answers[finding.id].source === 'gemini' 
+                                        ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
+                                        : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                                    }`}>
+                                      <span>
+                                        {answers[finding.id].source === 'gemini' ? '🟢 Live Gemini AI' : '🟡 Cached Knowledge Base'}
+                                      </span>
+                                    </span>
+                                  </div>
+                                </div>
+                                
+                                <div className="text-xs text-slate-300 whitespace-pre-wrap leading-relaxed">
+                                  {/* Format HCL code blocks if present */}
+                                  {answers[finding.id].answer.split("```").map((part, index) => {
+                                    if (index % 2 === 1) {
+                                      const lines = part.split("\n");
+                                      const codeLines = lines[0].trim() === "hcl" || lines[0].trim() === "terraform" || lines[0].trim() === "json" ? lines.slice(1) : lines;
+                                      const codeString = codeLines.join("\n").trim();
+                                      return (
+                                        <div key={index} className="my-2 select-all font-mono text-[10px] bg-slate-950 p-4 border border-white/10 rounded-xl text-indigo-300 leading-normal overflow-x-auto relative">
+                                          <pre>{codeString}</pre>
+                                        </div>
+                                      );
+                                    }
+                                    return <span key={index}>{part}</span>;
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
                         </div>
                       ) : (
                         <div className="p-8 text-center text-slate-500 text-xs italic">
@@ -387,9 +545,16 @@ export function AIAdvisor() {
                         </div>
 
                         {insight ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-bold font-mono bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 uppercase">
-                            <Database className="h-3 w-3" />
-                            <span>Cached AI Insight</span>
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-extrabold font-mono border ${
+                            insight.response?.source === 'gemini'
+                              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                              : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                          } uppercase`}>
+                            {insight.response?.source === 'gemini' ? (
+                              <span>🟢 Live Gemini AI</span>
+                            ) : (
+                              <span>🟡 Cached Knowledge Base</span>
+                            )}
                           </span>
                         ) : (
                           <button

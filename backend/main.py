@@ -7,7 +7,7 @@ from backend.config.settings import settings
 from backend.database.session import engine, Base
 # Import models to ensure they are registered on Base for table creation
 from backend.models.user import User
-from backend.models.terraform import TerraformFile, TerraformResource, SecurityFinding, AIInsight, ReportHistory
+from backend.models.terraform import TerraformFile, TerraformResource, SecurityFinding, AIInsight, ReportHistory, AIAnalysisCache, AIFollowUpCache
 from backend.routes.auth import router as auth_router
 from backend.routes.health import router as health_router
 from backend.routes.terraform import router as terraform_router
@@ -34,6 +34,12 @@ try:
     # Ensure reports output folder exists
     import os
     os.makedirs(os.path.join("uploads", "reports"), exist_ok=True)
+    
+    # Log GEMINI_API_KEY loading state on startup
+    if settings.GEMINI_API_KEY:
+        logger.info("GEMINI_API_KEY is loaded successfully from environment variables.")
+    else:
+        logger.warning("GEMINI_API_KEY is NOT configured. Gemini AI functionality will fall back to mock analysis.")
 except Exception as e:
     logger.error(f"Failed to initialize database tables or directories: {e}. If using MySQL, verify settings in .env.")
 

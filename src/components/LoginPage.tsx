@@ -6,8 +6,7 @@ import {
   FileText, 
   Lock, 
   Sparkles, 
-  AlertCircle,
-  HelpCircle
+  AlertCircle
 } from 'lucide-react';
 
 export function LoginPage() {
@@ -195,68 +194,20 @@ export function LoginPage() {
           )}
 
           <div className="space-y-4 py-4 flex flex-col items-center w-full">
-            {activeClientId ? (
-              <div className="space-y-4 w-full flex flex-col items-center">
-                {authLoading ? (
-                  <div className="flex flex-col items-center gap-2">
-                    <div className="h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                    <span className="text-xs font-mono text-slate-400">Verifying session token...</span>
-                  </div>
-                ) : (
-                  <div className="space-y-4 w-full flex flex-col items-center">
-                    <div id="google-signin-button" className="relative z-20 min-h-[40px] flex items-center justify-center" />
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setError(null);
-                        try {
-                          await loginWithGoogleToken("sandbox_developer_token");
-                        } catch (err: any) {
-                          setError(err.message || "Sandbox login failed.");
-                        }
-                      }}
-                      className="text-[11px] text-slate-405 text-indigo-400 hover:text-indigo-300 underline transition-colors cursor-pointer font-semibold"
-                    >
-                      Or access via Demo Sandbox
-                    </button>
-                  </div>
-                )}
-                <p className="text-[10px] text-slate-500 text-center flex items-center gap-1 justify-center max-w-xs">
-                  <Lock className="h-3 w-3 text-emerald-500" />
-                  Secure OAuth payload processing handled server-side
-                </p>
+            {authLoading ? (
+              <div className="flex flex-col items-center gap-2">
+                <div className="h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs font-mono text-slate-400">Verifying session token...</span>
               </div>
             ) : (
-              <div className="text-center p-6 bg-amber-500/5 border border-amber-500/10 rounded-xl space-y-3.5 w-full flex flex-col items-center">
-                <p className="text-xs text-amber-300 leading-normal">
-                  Google OAuth Client ID is not configured in environment. 
+              <div className="space-y-4 w-full flex flex-col items-center">
+                <div id="google-signin-button" className="relative z-20 min-h-[40px] flex items-center justify-center" />
+                <p className="text-[10px] text-slate-500 text-center flex items-center gap-1 justify-center max-w-xs">
+                  <Lock className="h-3 w-3 text-emerald-500" />
+                  Secure OAuth Authentication
                 </p>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setError(null);
-                    try {
-                      await loginWithGoogleToken("sandbox_developer_token");
-                    } catch (err: any) {
-                      setError(err.message || "Sandbox login failed.");
-                    }
-                  }}
-                  className="px-6 py-2.5 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-350 font-bold text-xs rounded-lg transition-colors cursor-pointer w-full"
-                >
-                  Access via Demo Sandbox
-                </button>
               </div>
             )}
-          </div>
-
-          {/* Setup tips */}
-          <div className="p-4 bg-slate-900/40 border border-white/5 rounded-xl space-y-2 text-left">
-            <span className="text-[9px] uppercase font-bold text-indigo-400 tracking-wider font-mono flex items-center gap-1">
-              <HelpCircle className="h-3 w-3" /> Technical setup guidance
-            </span>
-            <p className="text-[10px] text-slate-505 text-slate-400 leading-relaxed">
-              Google client ID configurations must be loaded via <code className="text-slate-300">VITE_GOOGLE_CLIENT_ID</code> env. Sandbox access is available for direct evaluation.
-            </p>
           </div>
 
         </div>
