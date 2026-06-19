@@ -215,6 +215,8 @@ export function InfrastructureAnalysis() {
     return categories;
   };
 
+  const selectedFile = files.find(f => f.id === selectedFileId);
+  const isHcl = selectedFile?.file_type === 'tf' || selectedFile?.file_type === 'tfvars';
   const grouped = groupResources();
 
   // Severity count calculators
@@ -274,6 +276,61 @@ export function InfrastructureAnalysis() {
           </span>
         </div>
       </div>
+
+      {/* Workspace Details Panel */}
+      {selectedFile && (
+        <div className="bg-slate-900/20 border border-white/5 rounded-2xl p-5 shadow-xl space-y-4">
+          <div className="flex items-center gap-2.5 pb-2 border-b border-white/5">
+            <div className="p-1.5 bg-amber-500/10 text-amber-500 border border-amber-500/20 rounded-lg">
+              <Info className="h-4 w-4" />
+            </div>
+            <h3 className="text-xs font-bold text-slate-350 uppercase tracking-wider font-mono">Workspace Analysis Details</h3>
+          </div>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div className="space-y-1">
+              <span className="text-[10px] uppercase font-bold text-slate-500 font-mono block">Analysis Source</span>
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold font-mono border ${
+                isHcl 
+                  ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' 
+                  : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+              }`}>
+                <span>{isHcl ? '📂 Terraform Source Code' : '📄 Terraform State File'}</span>
+              </span>
+            </div>
+            
+            <div className="space-y-1">
+              <span className="text-[10px] uppercase font-bold text-slate-500 font-mono block">Analysis Type</span>
+              <span className="text-slate-300 font-semibold">
+                {isHcl ? 'Workspace-wide (All HCL Files)' : 'File-specific'}
+              </span>
+            </div>
+          </div>
+
+          {isHcl && (
+            <div className="space-y-2 pt-2 border-t border-white/5">
+              <span className="text-[10px] uppercase font-bold text-slate-500 font-mono block">Files in Workspace</span>
+              <div className="flex flex-wrap gap-2">
+                {files
+                  .filter(f => f.file_type === 'tf' || f.file_type === 'tfvars')
+                  .map(f => (
+                    <span 
+                      key={f.id} 
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-mono border transition-all ${
+                        f.id === selectedFileId 
+                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 font-bold' 
+                          : 'bg-slate-950 border-white/5 text-slate-400'
+                      }`}
+                    >
+                      <FileCode className="h-3 w-3" />
+                      <span>{f.file_name}</span>
+                    </span>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="h-96 flex flex-col items-center justify-center gap-3">

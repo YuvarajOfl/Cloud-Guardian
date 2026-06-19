@@ -5,17 +5,51 @@ from backend.models.terraform import TerraformResource, SecurityFinding
 
 logger = logging.getLogger("backend.services.scanner")
 
+def is_s3_bucket_match(bucket_name: str, bucket_val: str, bucket_ref: str) -> bool:
+    if not bucket_ref:
+        return False
+    bucket_ref = str(bucket_ref).strip()
+    # Clean references like aws_s3_bucket.demo.id or aws_s3_bucket.demo.bucket -> demo
+    clean_ref = bucket_ref.replace("aws_s3_bucket.", "").replace(".id", "").replace(".bucket", "").strip()
+    
+    if clean_ref == bucket_name:
+        return True
+    if bucket_ref == bucket_name:
+        return True
+    if bucket_val and clean_ref == str(bucket_val):
+        return True
+    if bucket_val and bucket_ref == str(bucket_val):
+        return True
+    return False
+
 def run_security_scan(db: Session, file_id: int, user_id: int, resources: list[TerraformResource]) -> list[SecurityFinding]:
     """
     Scans a list of parsed Terraform resources for common security vulnerabilities
-    and saves any findings to the database.
+    and saves any findings to the database. Supports HCL workspace cross-resource matching.
     """
     findings = []
+    
+    # Pre-parse S3 configurations for workspace-wide HCL cross-referencing
+    s3_public_access_blocks = {}
+    s3_encryption_configs = {}
+    
+    for r in resources:
+        r_attrs = r.resource_metadata or {}
+        if r.resource_type == "aws_s3_bucket_public_access_block":
+            bucket_ref = r_attrs.get("bucket")
+            if bucket_ref:
+                s3_public_access_blocks[str(bucket_ref)] = r_attrs
+        elif r.resource_type == "aws_s3_bucket_server_side_encryption_configuration":
+            bucket_ref = r_attrs.get("bucket")
+            if bucket_ref:
+                s3_encryption_configs[str(bucket_ref)] = r_attrs
     
     for resource in resources:
         res_type = resource.resource_type
         res_name = resource.resource_name
         attrs = resource.resource_metadata or {}
+        # Fallback file_id
+        target_file_id = resource.file_id or file_id
         
         # 1. AWS Security Group (inline rules check)
         if res_type == "aws_security_group":
@@ -44,7 +78,7 @@ def run_security_scan(db: Session, file_id: int, user_id: int, resources: list[T
                     if from_port == 22 or to_port == 22 or (from_port is not None and to_port is not None and from_port <= 22 <= to_port):
                         findings.append(SecurityFinding(
                             user_id=user_id,
-                            file_id=file_id,
+                            file_id=target_file_id,
                             resource_name=res_name,
                             resource_type=res_type,
                             severity="High",
@@ -55,7 +89,7 @@ def run_security_scan(db: Session, file_id: int, user_id: int, resources: list[T
                     elif from_port == 3389 or to_port == 3389 or (from_port is not None and to_port is not None and from_port <= 3389 <= to_port):
                         findings.append(SecurityFinding(
                             user_id=user_id,
-                            file_id=file_id,
+                            file_id=target_file_id,
                             resource_name=res_name,
                             resource_type=res_type,
                             severity="High",
@@ -66,7 +100,7 @@ def run_security_scan(db: Session, file_id: int, user_id: int, resources: list[T
                     elif from_port == 0 or to_port == 0 or protocol == "-1" or (from_port == 1 and to_port == 65535):
                         findings.append(SecurityFinding(
                             user_id=user_id,
-                            file_id=file_id,
+                            file_id=target_file_id,
                             resource_name=res_name,
                             resource_type=res_type,
                             severity="Critical",
@@ -80,7 +114,7 @@ def run_security_scan(db: Session, file_id: int, user_id: int, resources: list[T
                             port_str = f"port {from_port}" if from_port == to_port else f"ports {from_port}-{to_port}"
                             findings.append(SecurityFinding(
                                 user_id=user_id,
-                                file_id=file_id,
+                                file_id=target_file_id,
                                 resource_name=res_name,
                                 resource_type=res_type,
                                 severity="Medium",
@@ -109,7 +143,7 @@ def run_security_scan(db: Session, file_id: int, user_id: int, resources: list[T
                     if from_port == 22 or to_port == 22 or (from_port is not None and to_port is not None and from_port <= 22 <= to_port):
                         findings.append(SecurityFinding(
                             user_id=user_id,
-                            file_id=file_id,
+                            file_id=target_file_id,
                             resource_name=res_name,
                             resource_type=res_type,
                             severity="High",
@@ -120,7 +154,7 @@ def run_security_scan(db: Session, file_id: int, user_id: int, resources: list[T
                     elif from_port == 3389 or to_port == 3389 or (from_port is not None and to_port is not None and from_port <= 3389 <= to_port):
                         findings.append(SecurityFinding(
                             user_id=user_id,
-                            file_id=file_id,
+                            file_id=target_file_id,
                             resource_name=res_name,
                             resource_type=res_type,
                             severity="High",
@@ -131,7 +165,7 @@ def run_security_scan(db: Session, file_id: int, user_id: int, resources: list[T
                     elif from_port == 0 or to_port == 0 or protocol == "-1":
                         findings.append(SecurityFinding(
                             user_id=user_id,
-                            file_id=file_id,
+                            file_id=target_file_id,
                             resource_name=res_name,
                             resource_type=res_type,
                             severity="Critical",
@@ -142,26 +176,62 @@ def run_security_scan(db: Session, file_id: int, user_id: int, resources: list[T
 
         # 3. AWS S3 Bucket
         elif res_type == "aws_s3_bucket":
+            # Public Access configuration checks
             acl = attrs.get("acl")
+            is_public = False
+            sev = "High"
+            
             if acl in ["public-read", "public-read-write"]:
+                is_public = True
                 sev = "Critical" if acl == "public-read-write" else "High"
+            else:
+                # Check workspace for S3 Public Access Block configuration
+                matching_block = None
+                for ref, block_attrs in s3_public_access_blocks.items():
+                    if is_s3_bucket_match(res_name, attrs.get("bucket", ""), ref):
+                        matching_block = block_attrs
+                        break
+                
+                if matching_block:
+                    b_acls = matching_block.get("block_public_acls")
+                    b_policy = matching_block.get("block_public_policy")
+                    # Check if either explicitly set to False/false
+                    if b_acls in [False, "false"] or b_policy in [False, "false"]:
+                        is_public = True
+                        sev = "High"
+                else:
+                    # In HCL source code, a missing public access block resource is a warning/high severity risk
+                    is_public = True
+                    sev = "High"
+            
+            if is_public:
                 findings.append(SecurityFinding(
                     user_id=user_id,
-                    file_id=file_id,
+                    file_id=target_file_id,
                     resource_name=res_name,
                     resource_type=res_type,
                     severity=sev,
                     title="S3 Bucket Publicly Accessible",
-                    description=f"The S3 bucket has ACL '{acl}', which allows public internet read or read/write access. Anyone on the internet can access this bucket.",
-                    recommendation="Remove public ACLs and configure S3 Block Public Access settings unless this bucket is intended to host public website assets."
+                    description=f"The S3 bucket has ACL '{acl or 'default'}' or missing/insecure Public Access Block configuration. Anyone on the internet can access this bucket.",
+                    recommendation="Remove public ACLs and configure S3 Block Public Access settings (block_public_acls = true, block_public_policy = true) unless this bucket is intended to host public website assets."
                 ))
             
             # SSE Configuration Check
+            has_encryption = False
             sse_config = attrs.get("server_side_encryption_configuration", [])
-            if not sse_config:
+            if sse_config:
+                has_encryption = True
+            else:
+                # Check workspace for S3 encryption configuration resource
+                for ref, sse_attrs in s3_encryption_configs.items():
+                    if is_s3_bucket_match(res_name, attrs.get("bucket", ""), ref):
+                        has_encryption = True
+                        break
+            
+            if not has_encryption:
                 findings.append(SecurityFinding(
                     user_id=user_id,
-                    file_id=file_id,
+                    file_id=target_file_id,
                     resource_name=res_name,
                     resource_type=res_type,
                     severity="Medium",
@@ -173,10 +243,10 @@ def run_security_scan(db: Session, file_id: int, user_id: int, resources: list[T
         # 4. AWS RDS Database
         elif res_type == "aws_db_instance":
             publicly_accessible = attrs.get("publicly_accessible", False)
-            if publicly_accessible:
+            if publicly_accessible in [True, "true"]:
                 findings.append(SecurityFinding(
                     user_id=user_id,
-                    file_id=file_id,
+                    file_id=target_file_id,
                     resource_name=res_name,
                     resource_type=res_type,
                     severity="High",
@@ -186,10 +256,10 @@ def run_security_scan(db: Session, file_id: int, user_id: int, resources: list[T
                 ))
                 
             storage_encrypted = attrs.get("storage_encrypted", False)
-            if not storage_encrypted:
+            if storage_encrypted not in [True, "true"]:
                 findings.append(SecurityFinding(
                     user_id=user_id,
-                    file_id=file_id,
+                    file_id=target_file_id,
                     resource_name=res_name,
                     resource_type=res_type,
                     severity="Medium",
@@ -243,7 +313,7 @@ def run_security_scan(db: Session, file_id: int, user_id: int, resources: list[T
                 if has_admin:
                     findings.append(SecurityFinding(
                         user_id=user_id,
-                        file_id=file_id,
+                        file_id=target_file_id,
                         resource_name=res_name,
                         resource_type=res_type,
                         severity="Critical",
@@ -255,6 +325,6 @@ def run_security_scan(db: Session, file_id: int, user_id: int, resources: list[T
     if findings:
         db.add_all(findings)
         db.commit()
-        logger.info(f"Registered {len(findings)} security findings for file #{file_id}")
+        logger.info(f"Registered {len(findings)} security findings.")
         
     return findings

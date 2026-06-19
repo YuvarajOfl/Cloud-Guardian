@@ -110,10 +110,51 @@ export function TerraformFiles() {
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = e.target.files?.[0];
-    if (selected) {
-      uploadFile(selected);
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files;
+    if (selected && selected.length > 0) {
+      if (selected.length === 1) {
+        uploadFile(selected[0]);
+      } else {
+        setUploading(true);
+        let successCount = 0;
+        let errors: string[] = [];
+        
+        for (let i = 0; i < selected.length; i++) {
+          const fileObj = selected[i];
+          const formData = new FormData();
+          formData.append('file', fileObj);
+          
+          try {
+            const response = await fetch(`${API_URL}/api/upload?upload_action=replace`, {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${token}` },
+              body: formData
+            });
+            
+            if (response.ok) {
+              successCount++;
+            } else {
+              const errData = await response.json();
+              errors.push(`${fileObj.name}: ${errData.detail || 'Upload failed'}`);
+            }
+          } catch (err: any) {
+            errors.push(`${fileObj.name}: ${err.message || 'Network error'}`);
+          }
+        }
+        
+        if (successCount > 0) {
+          triggerMessage('success', `${successCount} file(s) uploaded and parsed successfully.`);
+          fetchFiles(true);
+        }
+        if (errors.length > 0) {
+          triggerMessage('error', `Failed to upload some files: ${errors.join(', ')}`);
+        }
+        setUploading(false);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      }
     }
   };
 
@@ -158,7 +199,7 @@ export function TerraformFiles() {
             Terraform Files
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Upload and manage your Terraform state files (.tfstate, .json) securely in your workspace.
+            Upload and manage your Terraform state and configuration files (.tfstate, .json, .tf, .tfvars) securely in your workspace.
           </p>
         </div>
         <button 
@@ -193,9 +234,10 @@ export function TerraformFiles() {
           type="file" 
           ref={fileInputRef}
           onChange={handleFileChange}
-          accept=".tfstate,.json"
+          accept=".tfstate,.json,.tf,.tfvars"
           className="hidden" 
           id="file-upload-input"
+          multiple
         />
         <div className="p-4 bg-white/5 text-slate-400 rounded-2xl group-hover:scale-105 transition-transform mb-4 group-hover:text-blue-400 group-hover:bg-blue-500/10">
           {uploading ? (
@@ -205,10 +247,10 @@ export function TerraformFiles() {
           )}
         </div>
         <h3 className="text-sm font-bold text-slate-200">
-          {uploading ? 'Processing & Analyzing State File...' : 'Upload Terraform State File'}
+          {uploading ? 'Processing & Analyzing Files...' : 'Upload Terraform Files'}
         </h3>
         <p className="text-slate-500 text-[11px] mt-1 max-w-xs leading-normal">
-          Drag and drop your file here, or click to browse. We support <code className="text-slate-400">terraform.tfstate</code> and valid parsed JSON formats.
+          Drag and drop your file here, or click to browse. We support state files (<code className="text-slate-400">.tfstate</code>, <code className="text-slate-400">.json</code>) and HCL configuration files (<code className="text-slate-400">.tf</code>, <code className="text-slate-400">.tfvars</code>).
         </p>
         <button
           onClick={() => fileInputRef.current?.click()}

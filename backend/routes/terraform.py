@@ -12,7 +12,7 @@ from backend.routes.auth import get_current_user
 from backend.schemas.terraform import TerraformFileResponse, TerraformResourceResponse, SecurityFindingResponse, CostFindingResponse
 from backend.schemas.reports import ReportResponse, ReportGenerateRequest
 from backend.services import terraform_service
-from backend.models.terraform import SecurityFinding, CostFinding, ReportHistory
+from backend.models.terraform import SecurityFinding, CostFinding, ReportHistory, TerraformResource
 from backend.services.report_service import generate_pdf_report
 
 router = APIRouter(prefix="/api", tags=["Terraform Analyzer"])
@@ -26,7 +26,7 @@ async def upload_terraform_file(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Accepts, validates, and parses a terraform.tfstate, .tfstate, or .json file.
+    Accepts, validates, and parses a terraform.tfstate, .tfstate, .json, .tf, or .tfvars file.
     Saves parsed cloud resources in MySQL. Prevents duplicates by offering replace or versioning.
     """
     from backend.models.terraform import TerraformFile
@@ -82,12 +82,21 @@ async def upload_terraform_file(
 
     try:
         contents = await file.read()
-        db_file = terraform_service.validate_and_parse_terraform(
-            db=db,
-            user_id=current_user.id,
-            file_name=target_filename,
-            file_contents=contents
-        )
+        lower_name = target_filename.lower()
+        if lower_name.endswith(".tf") or lower_name.endswith(".tfvars"):
+            db_file = terraform_service.validate_and_save_hcl(
+                db=db,
+                user_id=current_user.id,
+                file_name=target_filename,
+                file_contents=contents
+            )
+        else:
+            db_file = terraform_service.validate_and_parse_terraform(
+                db=db,
+                user_id=current_user.id,
+                file_name=target_filename,
+                file_contents=contents
+            )
         return db_file
     except ValueError as val_err:
         raise HTTPException(
@@ -144,7 +153,7 @@ async def get_resources_by_file(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Returns all parsed cloud resources discovered in a specific Terraform file.
+    Returns all parsed cloud resources discovered in a specific Terraform file (or all HCL files in a workspace).
     """
     # Verify file ownership first
     file_record = terraform_service.get_file_by_id(db, file_id, current_user.id)
@@ -153,6 +162,16 @@ async def get_resources_by_file(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="File not found or access denied."
         )
+    
+    from backend.models.terraform import TerraformFile
+    if file_record.file_type in ["tf", "tfvars"]:
+        hcl_files = db.query(TerraformFile).filter(
+            TerraformFile.user_id == current_user.id,
+            TerraformFile.file_type.in_(["tf", "tfvars"])
+        ).all()
+        hcl_ids = [f.id for f in hcl_files]
+        return db.query(TerraformResource).filter(TerraformResource.file_id.in_(hcl_ids)).all()
+    
     return terraform_service.get_file_resources(db, file_id, current_user.id)
 
 
@@ -174,7 +193,7 @@ async def get_findings_by_file(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Returns all security findings discovered in a specific Terraform file.
+    Returns all security findings discovered in a specific Terraform file (or all HCL files in a workspace).
     """
     # Verify file ownership
     file_record = terraform_service.get_file_by_id(db, file_id, current_user.id)
@@ -183,6 +202,19 @@ async def get_findings_by_file(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="File not found or access denied."
         )
+
+    from backend.models.terraform import TerraformFile
+    if file_record.file_type in ["tf", "tfvars"]:
+        hcl_files = db.query(TerraformFile).filter(
+            TerraformFile.user_id == current_user.id,
+            TerraformFile.file_type.in_(["tf", "tfvars"])
+        ).all()
+        hcl_ids = [f.id for f in hcl_files]
+        return db.query(SecurityFinding).filter(
+            SecurityFinding.file_id.in_(hcl_ids),
+            SecurityFinding.user_id == current_user.id
+        ).order_by(SecurityFinding.created_at.desc()).all()
+
     return db.query(SecurityFinding).filter(SecurityFinding.file_id == file_id, SecurityFinding.user_id == current_user.id).order_by(SecurityFinding.created_at.desc()).all()
 
 
@@ -241,7 +273,7 @@ async def get_cost_findings_by_file(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Returns cost optimization findings discovered in a specific Terraform file.
+    Returns cost optimization findings discovered in a specific Terraform file (or all HCL files in a workspace).
     """
     # Verify file ownership
     file_record = terraform_service.get_file_by_id(db, file_id, current_user.id)
@@ -250,6 +282,19 @@ async def get_cost_findings_by_file(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="File not found or access denied."
         )
+
+    from backend.models.terraform import TerraformFile
+    if file_record.file_type in ["tf", "tfvars"]:
+        hcl_files = db.query(TerraformFile).filter(
+            TerraformFile.user_id == current_user.id,
+            TerraformFile.file_type.in_(["tf", "tfvars"])
+        ).all()
+        hcl_ids = [f.id for f in hcl_files]
+        return db.query(CostFinding).filter(
+            CostFinding.file_id.in_(hcl_ids),
+            CostFinding.user_id == current_user.id
+        ).order_by(CostFinding.created_at.desc()).all()
+
     return db.query(CostFinding).filter(CostFinding.file_id == file_id, CostFinding.user_id == current_user.id).order_by(CostFinding.created_at.desc()).all()
 
 

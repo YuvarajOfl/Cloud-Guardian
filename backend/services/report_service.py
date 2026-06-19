@@ -168,9 +168,18 @@ def generate_pdf_report(db: Session, tf_file: TerraformFile, report_type: str = 
     story.append(Paragraph(f"Terraform <b>{report_type}</b> for <b>{tf_file.file_name}</b>", subtitle_style))
     
     # Gather counts
-    resources = db.query(TerraformResource).filter(TerraformResource.file_id == tf_file.id).all()
-    findings = db.query(SecurityFinding).filter(SecurityFinding.file_id == tf_file.id).all()
-    cost_findings = db.query(CostFinding).filter(CostFinding.file_id == tf_file.id).all()
+    if tf_file.file_type in ["tf", "tfvars"]:
+        hcl_files = db.query(TerraformFile).filter(
+            TerraformFile.user_id == tf_file.user_id,
+            TerraformFile.file_type.in_(["tf", "tfvars"])
+        ).all()
+        target_ids = [f.id for f in hcl_files]
+    else:
+        target_ids = [tf_file.id]
+
+    resources = db.query(TerraformResource).filter(TerraformResource.file_id.in_(target_ids)).all()
+    findings = db.query(SecurityFinding).filter(SecurityFinding.file_id.in_(target_ids)).all()
+    cost_findings = db.query(CostFinding).filter(CostFinding.file_id.in_(target_ids)).all()
     
     potential_savings = sum(f.estimated_monthly_cost for f in cost_findings)
     

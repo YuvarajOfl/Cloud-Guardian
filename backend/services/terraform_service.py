@@ -1,6 +1,8 @@
 import json
 import re
 import logging
+import os
+import hcl2
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from backend.models.terraform import TerraformFile, TerraformResource
@@ -226,13 +228,280 @@ def get_file_resources(db: Session, file_id: int, user_id: int) -> List[Terrafor
 
 def delete_user_file(db: Session, file_id: int, user_id: int) -> bool:
     """
-    Deletes the file metadata and record from DB, cascading to clean up resources.
+    Deletes the file metadata and record from DB, cascading to clean up resources,
+    removes the file from disk if HCL, and re-triggers workspace analysis.
     """
     file_record = get_file_by_id(db, file_id, user_id)
     if not file_record:
         return False
         
+    file_type = file_record.file_type
+    file_name = file_record.file_name
+    
+    # 1. Delete physical file if it's HCL source code
+    if file_type in ["tf", "tfvars"]:
+        file_path = os.path.join("uploads", f"user_{user_id}", file_name)
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+                logger.info(f"Deleted physical file {file_path}")
+            except Exception as e:
+                logger.error(f"Error deleting physical HCL file {file_path}: {e}")
+
+    # 2. Delete database record
     db.delete(file_record)
     db.commit()
     logger.info(f"Successfully deleted terraform file #{file_id} and its associated resources.")
+    
+    # 3. Re-trigger analysis on remaining HCL workspace files
+    if file_type in ["tf", "tfvars"]:
+        try:
+            analyze_hcl_workspace(db, user_id)
+        except Exception as e:
+            logger.error(f"Error re-analyzing workspace after file deletion: {e}")
+            
     return True
+
+
+# --- HCL Parsing and Variable Resolution Helpers ---
+
+def clean_hcl_value(val):
+    """
+    Cleans double/single quotes from string values parsed by hcl2,
+    recursively cleaning lists and dicts.
+    """
+    if isinstance(val, str):
+        if len(val) >= 2 and val[0] == '"' and val[-1] == '"':
+            return val[1:-1]
+        if len(val) >= 2 and val[0] == "'" and val[-1] == "'":
+            return val[1:-1]
+    elif isinstance(val, list):
+        return [clean_hcl_value(v) for v in val]
+    elif isinstance(val, dict):
+        return {clean_hcl_value(k): clean_hcl_value(v) for k, v in val.items()}
+    return val
+
+
+def resolve_hcl_variables(val, variables: dict):
+    """
+    Recursively resolves variable references (var.xxx or interpolated ${var.xxx})
+    inside HCL resource configurations.
+    """
+    if isinstance(val, str):
+        if val.startswith("var."):
+            var_name = val[4:]
+            if var_name in variables:
+                return resolve_hcl_variables(variables[var_name], variables)
+        
+        # Match exact ${var.xxx}
+        match = re.match(r'^\$\{var\.([a-zA-Z0-9_\-]+)\}$', val)
+        if match:
+            var_name = match.group(1)
+            if var_name in variables:
+                return resolve_hcl_variables(variables[var_name], variables)
+                
+        # Regex substitution for inline `${var.xxx}`
+        if "${var." in val:
+            def repl(m):
+                var_name = m.group(1)
+                if var_name in variables:
+                    return str(resolve_hcl_variables(variables[var_name], variables))
+                return m.group(0)
+            return re.sub(r'\$\{var\.([a-zA-Z0-9_\-]+)\}', repl, val)
+            
+    elif isinstance(val, list):
+        return [resolve_hcl_variables(v, variables) for v in val]
+    elif isinstance(val, dict):
+        return {k: resolve_hcl_variables(v, variables) for k, v in val.items()}
+    return val
+
+
+def validate_and_save_hcl(db: Session, user_id: int, file_name: str, file_contents: bytes) -> TerraformFile:
+    """
+    Saves HCL (.tf or .tfvars) file to the user's workspace on disk,
+    registers it in the DB, and executes workspace analysis.
+    """
+    lower_name = file_name.lower()
+    if not (lower_name.endswith(".tf") or lower_name.endswith(".tfvars")):
+        raise ValueError("Invalid HCL file. Only .tf and .tfvars files are accepted.")
+
+    # Determine file type
+    file_type = "tf" if lower_name.endswith(".tf") else "tfvars"
+
+    # Ensure uploads directory for the user exists
+    user_dir = os.path.join("uploads", f"user_{user_id}")
+    os.makedirs(user_dir, exist_ok=True)
+
+    # Save physical file to disk
+    file_path = os.path.join(user_dir, file_name)
+    try:
+        with open(file_path, "wb") as f:
+            f.write(file_contents)
+        logger.info(f"Saved physical file to disk: {file_path}")
+    except Exception as e:
+        logger.error(f"Failed to write file to disk: {e}")
+        raise ValueError(f"Failed to save file on disk: {str(e)}")
+
+    # Check if file record already exists in DB
+    db_file = db.query(TerraformFile).filter(
+        TerraformFile.user_id == user_id,
+        TerraformFile.file_name == file_name
+    ).first()
+
+    if not db_file:
+        db_file = TerraformFile(
+            user_id=user_id,
+            file_name=file_name,
+            file_type=file_type,
+            status="uploaded"
+        )
+        db.add(db_file)
+        db.commit()
+        db.refresh(db_file)
+    else:
+        db_file.status = "uploaded"
+        db_file.file_type = file_type
+        db.commit()
+        db.refresh(db_file)
+
+    try:
+        analyze_hcl_workspace(db, user_id)
+    except Exception as e:
+        db_file.status = "failed"
+        db.commit()
+        logger.error(f"HCL Workspace analysis failed: {e}")
+        raise ValueError(f"Failed to parse and analyze HCL workspace: {str(e)}")
+
+    return db_file
+
+
+def analyze_hcl_workspace(db: Session, user_id: int):
+    """
+    Builds a unified resource inventory from all uploaded .tf and .tfvars files
+    belonging to the user. Resolves variables workspace-wide, detects security risks,
+    and runs cost analysis.
+    """
+    logger.info(f"Starting HCL Workspace analysis for user #{user_id}...")
+
+    # 1. Fetch all HCL files associated with this user
+    hcl_files = db.query(TerraformFile).filter(
+        TerraformFile.user_id == user_id,
+        TerraformFile.file_type.in_(["tf", "tfvars"])
+    ).all()
+
+    if not hcl_files:
+        logger.info(f"No HCL files found for user #{user_id}")
+        return
+
+    file_ids = [f.id for f in hcl_files]
+
+    # 2. Clear out any existing resources and findings for the user's HCL files
+    from backend.models.terraform import SecurityFinding, CostFinding
+    db.query(TerraformResource).filter(TerraformResource.file_id.in_(file_ids)).delete(synchronize_session=False)
+    db.query(SecurityFinding).filter(SecurityFinding.file_id.in_(file_ids)).delete(synchronize_session=False)
+    db.query(CostFinding).filter(CostFinding.file_id.in_(file_ids)).delete(synchronize_session=False)
+    db.commit()
+
+    # 3. Compile variables workspace-wide (defaults in .tf files and overrides in .tfvars files)
+    variables = {}
+    user_dir = os.path.join("uploads", f"user_{user_id}")
+
+    # First pass: parse all variables from .tf files and .tfvars files
+    for db_file in hcl_files:
+        file_path = os.path.join(user_dir, db_file.file_name)
+        if not os.path.exists(file_path):
+            continue
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                raw_data = hcl2.load(f)
+            cleaned_data = clean_hcl_value(raw_data)
+        except Exception as parse_err:
+            db_file.status = "failed"
+            db.commit()
+            logger.error(f"Error parsing file {db_file.file_name}: {parse_err}")
+            raise ValueError(f"HCL syntax error in '{db_file.file_name}': {str(parse_err)}")
+
+        if db_file.file_type == "tf":
+            for var_block in cleaned_data.get("variable", []):
+                for var_name, var_info in var_block.items():
+                    if isinstance(var_info, dict) and "default" in var_info:
+                        variables[var_name] = var_info["default"]
+
+        elif db_file.file_type == "tfvars":
+            for var_name, var_value in cleaned_data.items():
+                if var_name != "__is_block__":
+                    variables[var_name] = var_value
+
+    logger.info(f"Resolved global workspace variables: {variables}")
+
+    # 4. Extract resources from .tf files
+    resources_to_insert = []
+    
+    for db_file in hcl_files:
+        if db_file.file_type != "tf":
+            continue
+
+        file_path = os.path.join(user_dir, db_file.file_name)
+        if not os.path.exists(file_path):
+            continue
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                raw_data = hcl2.load(f)
+            cleaned_data = clean_hcl_value(raw_data)
+        except Exception as parse_err:
+            db_file.status = "failed"
+            db.commit()
+            raise ValueError(f"HCL syntax error in '{db_file.file_name}': {str(parse_err)}")
+
+        for res_block in cleaned_data.get("resource", []):
+            for res_type, res_instances in res_block.items():
+                for res_name, res_config in res_instances.items():
+                    if not isinstance(res_config, dict):
+                        continue
+
+                    # Resolve variable references inside resource config block
+                    resolved_config = resolve_hcl_variables(res_config, variables)
+                    provider = res_type.split("_")[0] if "_" in res_type else "unknown"
+                    region = extract_region(resolved_config, provider, res_type)
+
+                    # Build DB record
+                    db_resource = TerraformResource(
+                        file_id=db_file.id,
+                        resource_type=res_type,
+                        resource_name=res_name,
+                        provider=provider,
+                        region=region,
+                        resource_metadata=resolved_config,
+                        status="Managed"
+                    )
+                    resources_to_insert.append(db_resource)
+
+    # 5. Insert resource inventory into DB
+    if resources_to_insert:
+        db.add_all(resources_to_insert)
+        db.commit()
+        for r in resources_to_insert:
+            db.refresh(r)
+
+        # 6. Run workspace-wide security scanning and cost analysis
+        try:
+            from backend.services.scanner_service import run_security_scan
+            # Pass the aggregated list of resources to run_security_scan
+            run_security_scan(db=db, file_id=file_ids[0], user_id=user_id, resources=resources_to_insert)
+        except Exception as scan_err:
+            logger.error(f"Failed to scan HCL resources: {scan_err}")
+
+        try:
+            from backend.services.cost_service import run_cost_analysis
+            run_cost_analysis(db=db, file_id=file_ids[0], user_id=user_id, resources=resources_to_insert)
+        except Exception as cost_err:
+            logger.error(f"Failed to analyze cost for HCL resources: {cost_err}")
+
+    # 7. Update status of files to parsed
+    for db_file in hcl_files:
+        db_file.status = "parsed"
+    db.commit()
+    logger.info(f"HCL Workspace analysis for user #{user_id} completed successfully.")
+
