@@ -31,6 +31,14 @@ def test_variable_resolution():
     assert resolved["ingress"]["to_port"] == 22
     print("HCL Variable Resolution test: PASSED")
 
+def is_localhost_running():
+    try:
+        response = requests.get(API_URL, timeout=1)
+        return response.status_code == 200
+    except Exception:
+        return False
+
+@pytest.mark.skipif(not is_localhost_running(), reason="Requires localhost service")
 @pytest.mark.integration
 def test_integration():
     print("Testing HCL upload and workspace view endpoints via API...")
