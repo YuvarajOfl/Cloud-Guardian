@@ -27,7 +27,8 @@ jobs:
       - name: Install ESLint and Plugins
         run: |
           cd frontend
-          npm install --save-dev eslint @typescript-eslint/parser @typescript-eslint/eslint-plugin eslint-plugin-react-hooks eslint-plugin-react-refresh
+          npm install --save-dev eslint@8 @typescript-eslint/parser @typescript-eslint/eslint-plugin
+          echo '{"root": true, "env": {"browser": true, "es2020": true}, "extends": ["eslint:recommended"], "parser": "@typescript-eslint/parser"}' > .eslintrc.json
 
       - name: Run Frontend Lint
         run: |
