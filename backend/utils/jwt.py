@@ -9,6 +9,8 @@ def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
     """
     Generates a secure JSON Web Token (JWT) signed with the application secret.
     """
+    if not settings.JWT_SECRET:
+        raise RuntimeError("JWT_SECRET is missing")
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
@@ -24,6 +26,8 @@ def verify_access_token(token: str) -> dict:
     Decodes and verifies the authenticity and expiration of a JWT access token.
     Returns the decoded token claims, or None if invalid or expired.
     """
+    if not settings.JWT_SECRET:
+        raise RuntimeError("JWT_SECRET is missing")
     try:
         payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
         return payload

@@ -161,6 +161,18 @@ jobs:
         run: |
           scp docker-compose.prod.yml ubuntu@${{ env.EC2_IP }}:/home/ubuntu/infrasight/docker-compose.yml
 
+      - name: Create and Copy Environment Configuration
+        run: |
+          cat << 'EOF' > .env.prod
+          DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+          IMAGE_TAG=latest
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+          CORS_ORIGINS=*
+          EOF
+          scp .env.prod ubuntu@${{ env.EC2_IP }}:/home/ubuntu/infrasight/.env
+
       - name: Execute Remote Deploy Commands
         run: |
           ssh ubuntu@${{ env.EC2_IP }} "
@@ -169,14 +181,6 @@ jobs:
             # Authenticate to Docker Hub
             echo '${{ secrets.DOCKERHUB_TOKEN }}' | docker login -u '${{ secrets.DOCKERHUB_USERNAME }}' --password-stdin
             
-            # Run container stack with injected secrets
-            export DOCKERHUB_USERNAME='${{ secrets.DOCKERHUB_USERNAME }}'
-            export IMAGE_TAG='latest'
-            export JWT_SECRET='${{ secrets.JWT_SECRET }}'
-            export GEMINI_API_KEY='${{ secrets.GEMINI_API_KEY }}'
-            export GOOGLE_CLIENT_ID='${{ secrets.GOOGLE_CLIENT_ID }}'
-            export CORS_ORIGINS='*'
-
             docker compose pull
             docker compose down
             docker compose up -d

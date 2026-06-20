@@ -14,6 +14,11 @@ logging.basicConfig(
 logger = logging.getLogger("backend")
 
 from backend.config.settings import settings
+
+if not settings.JWT_SECRET:
+    logger.error("JWT_SECRET environment variable is not configured")
+    raise RuntimeError("JWT_SECRET is missing")
+
 from backend.database.session import engine, Base
 # Import models to ensure they are registered on Base for table creation
 from backend.models.user import User
