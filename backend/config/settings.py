@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
 
     # Google OAuth Configuration
-    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_ID: str = "915887390862-fcgaqrabnob077qjicmpaf79db80cqic.apps.googleusercontent.com"
     GOOGLE_CLIENT_SECRET: str = ""
 
     # Gemini API Key Configuration

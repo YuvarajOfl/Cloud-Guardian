@@ -12,9 +12,10 @@ import {
 export function LoginPage() {
   const { loginWithGoogleToken, isLoading: authLoading } = useAuth();
   const [error, setError] = useState<string | null>(null);
-  const [activeClientId, setActiveClientId] = useState<string>(import.meta.env.VITE_GOOGLE_CLIENT_ID || '');
+  const [activeClientId, setActiveClientId] = useState<string>(import.meta.env.VITE_GOOGLE_CLIENT_ID || '915887390862-fcgaqrabnob077qjicmpaf79db80cqic.apps.googleusercontent.com');
 
   useEffect(() => {
+    console.log("GOOGLE CLIENT ID:", import.meta.env.VITE_GOOGLE_CLIENT_ID);
     const API_URL = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' ? `http://${window.location.hostname}:8000` : 'http://localhost:8000');
     const fetchConfig = async () => {
       try {
