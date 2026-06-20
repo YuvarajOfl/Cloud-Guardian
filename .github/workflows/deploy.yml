@@ -1,9 +1,7 @@
 name: Production CI/CD Pipeline
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
   lint-and-test:
@@ -25,6 +23,11 @@ jobs:
         run: |
           cd frontend
           npm ci
+
+      - name: Install ESLint and Plugins
+        run: |
+          cd frontend
+          npm install --save-dev eslint @typescript-eslint/parser @typescript-eslint/eslint-plugin eslint-plugin-react-hooks eslint-plugin-react-refresh
 
       - name: Run Frontend Lint
         run: |
