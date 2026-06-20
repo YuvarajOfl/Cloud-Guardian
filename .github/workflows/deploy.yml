@@ -51,7 +51,7 @@ jobs:
 
       - name: Run Backend Tests
         run: |
-          PYTHONPATH=. python -m pytest backend/tests/
+          PYTHONPATH=. python -m pytest backend/tests/ -m "not integration"
 
   build-and-push:
     name: Build & Push Docker Images

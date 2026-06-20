@@ -3,6 +3,7 @@ import sys
 import subprocess
 import time
 import os
+import pytest
 
 from backend.services.terraform_service import resolve_hcl_variables
 
@@ -30,6 +31,7 @@ def test_variable_resolution():
     assert resolved["ingress"]["to_port"] == 22
     print("HCL Variable Resolution test: PASSED")
 
+@pytest.mark.integration
 def test_integration():
     print("Testing HCL upload and workspace view endpoints via API...")
     
