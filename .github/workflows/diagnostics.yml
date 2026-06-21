@@ -15,6 +15,11 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
 
+      - name: Check STS Caller Identity
+        run: |
+          echo "=== AWS Caller Identity ==="
+          aws sts get-caller-identity --output json
+
       - name: Describe All EC2 Instances
         run: |
           echo "=== All EC2 Instances in ap-south-1 ==="
@@ -32,53 +37,3 @@ jobs:
           nc -zv -w 5 35.154.59.136 22 || true
           nc -zv -w 5 35.154.59.136 80 || true
           nc -zv -w 5 35.154.59.136 8000 || true
-
-      - name: Setup SSH Key and Scan
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H 35.154.59.136 >> ~/.ssh/known_hosts || echo "ssh-keyscan failed"
-
-      - name: Run SSH Diagnostics
-        run: |
-          echo "=== Connecting to EC2 ==="
-          ssh -o ConnectTimeout=10 ubuntu@35.154.59.136 "
-            echo '=== 1. docker ps ==='
-            docker ps || true
-            
-            echo '=== 2. docker compose ps ==='
-            cd /home/ubuntu/infrasight && docker compose ps || true
-            
-            echo '=== 3. docker compose logs backend --tail=200 ==='
-            cd /home/ubuntu/infrasight && docker compose logs backend --tail=200 || true
-            
-            echo '=== 4. docker compose logs frontend --tail=100 ==='
-            cd /home/ubuntu/infrasight && docker compose logs frontend --tail=100 || true
-            
-            echo '=== 5. curl http://localhost:8000/auth/config ==='
-            curl -i http://localhost:8000/auth/config || echo 'Failed to curl backend auth/config'
-            
-            echo '=== 6. curl http://localhost:8000/health ==='
-            curl -i http://localhost:8000/health || echo 'Failed to curl backend health'
-            
-            echo '=== 7. Verify API_URL used by frontend at runtime ==='
-            FRONTEND_CONTAINER=\$(docker ps -q -f name=frontend)
-            if [ -n \"\$FRONTEND_CONTAINER\" ]; then
-              docker exec \$FRONTEND_CONTAINER env | grep -i url || echo 'No URL env in frontend'
-              docker exec \$FRONTEND_CONTAINER sh -c \"grep -o -E 'http[s]?://[^\\\"]+:8000' /usr/share/nginx/html/assets/index-*.js\" || echo 'No matching API URL string in built JS files'
-            else
-              echo 'Frontend container is not running.'
-            fi
-            
-            echo '=== 8. Verify backend port mapping ==='
-            BACKEND_CONTAINER=\$(docker ps -q -f name=backend)
-            if [ -n \"\$BACKEND_CONTAINER\" ]; then
-              docker port \$BACKEND_CONTAINER || echo 'No backend port mapping found'
-            else
-              echo 'Backend container is not running.'
-            fi
-            
-            echo '=== Network inspect ==='
-            docker network ls || true
-          " || echo "SSH connection failed"
