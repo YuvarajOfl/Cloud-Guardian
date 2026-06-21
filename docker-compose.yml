@@ -27,6 +27,7 @@ services:
     volumes:
       - ./backend:/app/backend
       - infrasight_data:/app/data
+      - uploads_data:/app/uploads
     environment:
       - DB_HOST=db
       - DB_USER=root
@@ -59,3 +60,4 @@ services:
 volumes:
   mysql_data:
   infrasight_data:
+  uploads_data:

@@ -15,9 +15,21 @@ logger = logging.getLogger("backend")
 
 from backend.config.settings import settings
 
-if not settings.JWT_SECRET:
-    logger.error("JWT_SECRET environment variable is not configured")
+# Startup checks and validation
+# 1. Critical validation for JWT_SECRET
+if not settings.JWT_SECRET or settings.JWT_SECRET.strip() == "":
+    logger.critical("FATAL: JWT_SECRET environment variable is missing or empty! JWT tokens cannot be signed.")
     raise RuntimeError("JWT_SECRET is missing")
+
+# 2. Informative warning checks for optional external API credentials
+if not settings.GEMINI_API_KEY or settings.GEMINI_API_KEY.strip() == "":
+    logger.warning("WARNING: GEMINI_API_KEY is not configured. AI advisor queries will fall back to mock analysis.")
+
+if not settings.GOOGLE_CLIENT_ID or settings.GOOGLE_CLIENT_ID.strip() == "":
+    logger.warning("WARNING: GOOGLE_CLIENT_ID is not configured. Google OAuth button will fallback to developer ID.")
+
+if not settings.GOOGLE_CLIENT_SECRET or settings.GOOGLE_CLIENT_SECRET.strip() == "":
+    logger.warning("WARNING: GOOGLE_CLIENT_SECRET is not configured. Google OAuth authentication will not function.")
 
 from backend.database.session import engine, Base, mask_database_url
 
@@ -51,9 +63,18 @@ try:
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables initialized successfully.")
 
-    # Ensure reports output folder exists
+    # Ensure uploads folders exist defensively on startup
     import os
-    os.makedirs(os.path.join("uploads", "reports"), exist_ok=True)
+    for dir_path in [
+        os.path.join("uploads"),
+        os.path.join("uploads", "reports"),
+        os.path.join("uploads", "user_1")
+    ]:
+        try:
+            os.makedirs(dir_path, exist_ok=True)
+            logger.info(f"Startup directory verified/created: {dir_path}")
+        except Exception as dir_err:
+            logger.error(f"Startup directory verification warning: Failed to create {dir_path} due to: {dir_err}. Permissions review required.")
     
     # Log GEMINI_API_KEY loading state on startup
     if settings.GEMINI_API_KEY:

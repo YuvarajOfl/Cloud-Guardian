@@ -109,9 +109,12 @@ resource "aws_instance" "infrasight_server" {
               systemctl enable docker
               systemctl start docker
               usermod -aG docker ubuntu
-              mkdir -p /home/ubuntu/infrasight
+              mkdir -p /home/ubuntu/infrasight/uploads
+              mkdir -p /home/ubuntu/infrasight/uploads/reports
               chown -R ubuntu:ubuntu /home/ubuntu/infrasight
               chmod 755 /home/ubuntu/infrasight
+              chown -R ubuntu:ubuntu /home/ubuntu/infrasight/uploads
+              chmod -R 775 /home/ubuntu/infrasight/uploads
               EOF
 
   tags = {

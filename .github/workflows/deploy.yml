@@ -4,8 +4,42 @@ on:
   workflow_dispatch:
 
 jobs:
+  validate-secrets:
+    name: Validate Deployment Secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Required GitHub Secrets
+        run: |
+          error_found=0
+          check_secret() {
+            local name=$1
+            local value=$2
+            if [ -z "$value" ]; then
+              echo "❌ ERROR: GitHub secret '$name' is missing or empty!"
+              error_found=1
+            else
+              echo "✅ GitHub secret '$name' is configured."
+            fi
+          }
+          echo "Checking deployment secrets..."
+          check_secret "AWS_ACCESS_KEY_ID" "${{ secrets.AWS_ACCESS_KEY_ID }}"
+          check_secret "AWS_SECRET_ACCESS_KEY" "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+          check_secret "DOCKERHUB_USERNAME" "${{ secrets.DOCKERHUB_USERNAME }}"
+          check_secret "DOCKERHUB_TOKEN" "${{ secrets.DOCKERHUB_TOKEN }}"
+          check_secret "EC2_SSH_KEY" "${{ secrets.EC2_SSH_KEY }}"
+          check_secret "JWT_SECRET" "${{ secrets.JWT_SECRET }}"
+          check_secret "GEMINI_API_KEY" "${{ secrets.GEMINI_API_KEY }}"
+          check_secret "GOOGLE_CLIENT_ID" "${{ secrets.GOOGLE_CLIENT_ID }}"
+          check_secret "GOOGLE_CLIENT_SECRET" "${{ secrets.GOOGLE_CLIENT_SECRET }}"
+          if [ $error_found -ne 0 ]; then
+            echo "FATAL: Deployment aborted due to missing secrets. Please configure them in your repository settings."
+            exit 1
+          fi
+          echo "All secrets successfully verified!"
+
   lint-and-test:
     name: Lint & Test Application
+    needs: validate-secrets
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -169,6 +203,7 @@ jobs:
           JWT_SECRET=${{ secrets.JWT_SECRET }}
           GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
           GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
           CORS_ORIGINS=*
           EOF
           scp .env.prod ubuntu@${{ env.EC2_IP }}:/home/ubuntu/infrasight/.env
@@ -185,6 +220,27 @@ jobs:
             docker compose down
             docker compose up -d
           "
+
+      - name: Verify Deployed Services Health
+        run: |
+          echo "Waiting for backend service to become healthy..."
+          attempt=1
+          max_attempts=12
+          while [ $attempt -le $max_attempts ]; do
+            response=$(curl -s -w "%{http_code}" -o /dev/null http://${{ env.EC2_IP }}:8000/health || true)
+            if [ "$response" = "200" ]; then
+              echo "✅ Backend service is healthy!"
+              break
+            fi
+            echo "Waiting for service (attempt $attempt/$max_attempts, response code: $response)..."
+            sleep 5
+            attempt=$((attempt+1))
+          done
+          if [ $attempt -gt $max_attempts ]; then
+            echo "❌ Backend service failed to become healthy. Logs:"
+            ssh ubuntu@${{ env.EC2_IP }} "cd /home/ubuntu/infrasight && docker compose logs backend --tail=100"
+            exit 1
+          fi
 
       # Summarize Run
       - name: Print Deployment Summary

@@ -33,32 +33,49 @@ def ensure_sqlite_dir_exists(url: str):
             os.makedirs(db_dir, exist_ok=True)
 
 # MySQL connection engine, with automatic fallback to SQLite for local development
-try:
-    ensure_sqlite_dir_exists(settings.database_url)
-    # Set a short connection timeout to prevent hanging on startup if server is down
+def try_connect_database():
+    import time
+    
+    # If the URL is SQLite, return immediately
     if settings.database_url.startswith("sqlite"):
-        engine = create_engine(
+        ensure_sqlite_dir_exists(settings.database_url)
+        return create_engine(
             settings.database_url,
             connect_args={"check_same_thread": False}
         )
-    else:
-        connect_args = {"connect_timeout": 5}
-        engine = create_engine(
-            settings.database_url,
-            pool_pre_ping=True,      # Check connection health before queries
-            pool_recycle=3600,       # Recycle connections after an hour
-            pool_size=10,            # Core pool size
-            max_overflow=20,         # Max overflow connections during spikes
-            connect_args=connect_args
-        )
-    # Test connection
-    with engine.connect() as conn:
-        db_type = "SQLite" if settings.database_url.startswith("sqlite") else "MySQL"
-        logger.info(f"Successfully connected to {db_type} database.")
-    logger.info(f"Database engine initialized with URL: {mask_database_url(settings.database_url)}")
-except Exception as conn_err:
-    logger.warning(f"MySQL server connection failed: {conn_err}. Falling back to local SQLite database.")
-    # Initialize SQLite database file locally
+
+    # For MySQL, attempt connection with retries to resolve startup race conditions
+    max_retries = 5
+    retry_interval = 2
+    last_err = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info(f"Attempting to connect to database (attempt {attempt}/{max_retries})...")
+            connect_args = {"connect_timeout": 5}
+            engine = create_engine(
+                settings.database_url,
+                pool_pre_ping=True,      # Check connection health before queries
+                pool_recycle=3600,       # Recycle connections after an hour
+                pool_size=10,            # Core pool size
+                max_overflow=20,         # Max overflow connections during spikes
+                connect_args=connect_args
+            )
+            # Test connection
+            with engine.connect() as conn:
+                db_type = "SQLite" if settings.database_url.startswith("sqlite") else "MySQL"
+                logger.info(f"Successfully connected to {db_type} database.")
+            logger.info(f"Database engine initialized with URL: {mask_database_url(settings.database_url)}")
+            return engine
+        except Exception as e:
+            last_err = e
+            logger.warning(f"Database connection attempt {attempt} failed: {e}")
+            if attempt < max_retries:
+                time.sleep(retry_interval)
+
+    # If all attempts failed, fallback defensively to SQLite
+    logger.critical(f"All MySQL database connection attempts failed: {last_err}. Falling back to SQLite as defensive measure.")
+    
     import os
     if os.path.exists("/.dockerenv") or os.environ.get("APP_ENV") == "production" or os.path.exists("/app"):
         db_dir = "/app/data"
@@ -72,6 +89,9 @@ except Exception as conn_err:
         connect_args={"check_same_thread": False}
     )
     logger.info(f"Database engine initialized with URL: {mask_database_url(sqlite_url)}")
+    return engine
+
+engine = try_connect_database()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
