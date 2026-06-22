@@ -1,3 +1,6 @@
+import os
+os.environ["JWT_SECRET"] = "temporary_jwt_secret_for_unit_tests_compliance"
+
 from fastapi.testclient import TestClient
 from backend.main import app
 from backend.database.session import SessionLocal, Base, engine
