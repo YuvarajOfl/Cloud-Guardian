@@ -141,42 +141,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
 
-      - name: Clean Up Existing Resources
-        run: |
-          echo "=== Checking and cleaning up existing resources for idempotency ==="
-          INSTANCE_IDS=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=InfraSight-ec2-server" "Name=instance-state-name,Values=running,stopped,stopping,pending" \
-            --query "Reservations[*].Instances[*].InstanceId" \
-            --output text)
-          if [ -n "$INSTANCE_IDS" ] && [ "$INSTANCE_IDS" != "None" ]; then
-            echo "Terminating existing EC2 instances: $INSTANCE_IDS"
-            aws ec2 terminate-instances --instance-ids $INSTANCE_IDS
-            echo "Waiting for instance termination..."
-            aws ec2 wait instance-terminated --instance-ids $INSTANCE_IDS
-            echo "Instance terminated."
-          fi
-          EIP_ALLOCS=$(aws ec2 describe-addresses \
-            --filters "Name=tag:Name,Values=InfraSight-eip" \
-            --query "Addresses[*].AllocationId" \
-            --output text)
-          if [ -n "$EIP_ALLOCS" ] && [ "$EIP_ALLOCS" != "None" ]; then
-            for alloc in $EIP_ALLOCS; do
-              echo "Releasing Elastic IP allocation: $alloc"
-              aws ec2 release-address --allocation-id $alloc || true
-            done
-          fi
-          SG_IDS=$(aws ec2 describe-security-groups \
-            --filters "Name=group-name,Values=InfraSight-sg" \
-            --query "SecurityGroups[*].GroupId" \
-            --output text)
-          if [ -n "$SG_IDS" ] && [ "$SG_IDS" != "None" ]; then
-            for sg in $SG_IDS; do
-              echo "Deleting existing Security Group: $sg"
-              aws ec2 delete-security-group --group-id $sg || true
-            done
-          fi
-          echo "Cleanup complete!"
-
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -208,30 +172,79 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ env.EC2_IP }} >> ~/.ssh/known_hosts
 
-      # Wait for User Data Bootstrap (Docker setup)
+      - name: Verify SSH Connection
+        run: |
+          echo "Verifying SSH connection to EC2..."
+          if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@${{ env.EC2_IP }} "echo SSH_CONNECTION_SUCCESS" | grep -q "SSH_CONNECTION_SUCCESS"; then
+            echo "SSH_CONNECTION_SUCCESS"
+          else
+            echo "❌ ERROR: SSH connection to EC2 is unavailable."
+            exit 1
+          fi
+
       - name: Wait for EC2 Bootstrap
         run: |
-          echo "Checking SSH connectivity and waiting for Docker daemon to start on EC2..."
+          echo "=== Starting EC2 Bootstrap Verification ==="
+          
+          echo "1. Waiting for port 22 to open..."
+          if command -v nc >/dev/null; then
+            for i in {1..30}; do
+              if nc -z -w5 ${{ env.EC2_IP }} 22; then
+                echo "✅ Port 22 is open!"
+                break
+              fi
+              echo "Waiting for port 22 ($i/30)..."
+              sleep 5
+            done
+          else
+            echo "nc not found, skipping port 22 check..."
+          fi
+
+          echo "2. Waiting for cloud-init status to finish..."
           attempt=1
-          max_attempts=30
+          max_attempts=12
           while [ $attempt -le $max_attempts ]; do
-            if ssh ubuntu@${{ env.EC2_IP }} "docker ps" >/dev/null 2>&1; then
-              echo "Docker daemon is ready on EC2 server!"
+            if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@${{ env.EC2_IP }} "sudo cloud-init status --wait" >/dev/null 2>&1; then
+              echo "✅ cloud-init has completed!"
               break
             fi
-            echo "Waiting for Docker installation to complete ($attempt/$max_attempts)..."
-            sleep 10
+            echo "Waiting for SSH / cloud-init availability ($attempt/$max_attempts)..."
+            sleep 5
             attempt=$((attempt+1))
           done
           if [ $attempt -gt $max_attempts ]; then
-            echo "EC2 Bootstrap timed out waiting for Docker."
+            echo "❌ Timeout waiting for cloud-init completion."
             exit 1
           fi
+
+          echo "3. Waiting for Docker daemon to respond..."
+          docker_attempt=1
+          max_docker_attempts=20
+          while [ $docker_attempt -le $max_docker_attempts ]; do
+            if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "docker ps" >/dev/null 2>&1; then
+              echo "✅ Docker daemon is responsive!"
+              break
+            fi
+            echo "Waiting for Docker daemon to become responsive ($docker_attempt/$max_docker_attempts)..."
+            sleep 5
+            docker_attempt=$((docker_attempt+1))
+          done
+          if [ $docker_attempt -gt $max_docker_attempts ]; then
+            echo "❌ Timeout waiting for Docker daemon."
+            exit 1
+          fi
+          
+          echo "=== EC2 Bootstrap Completed Successfully! ==="
+
+      - name: Verify Remote Directory Structure
+        run: |
+          echo "Ensuring deployment directory /home/ubuntu/infrasight exists..."
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "mkdir -p /home/ubuntu/infrasight"
 
       # Transfer and Deploy Config
       - name: Copy Docker Compose Configuration
         run: |
-          scp docker-compose.prod.yml ubuntu@${{ env.EC2_IP }}:/home/ubuntu/infrasight/docker-compose.yml
+          scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no docker-compose.prod.yml ubuntu@${{ env.EC2_IP }}:/home/ubuntu/infrasight/docker-compose.yml
 
       - name: Create and Copy Environment Configuration
         run: |
@@ -246,18 +259,23 @@ jobs:
           ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
           ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
           EOF
-          scp .env.prod ubuntu@${{ env.EC2_IP }}:/home/ubuntu/infrasight/.env
+          scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no .env.prod ubuntu@${{ env.EC2_IP }}:/home/ubuntu/infrasight/.env
 
       - name: Execute Remote Deploy Commands
         run: |
-          ssh ubuntu@${{ env.EC2_IP }} "
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "
             cd /home/ubuntu/infrasight
             
             # Authenticate to Docker Hub
             echo '${{ secrets.DOCKERHUB_TOKEN }}' | docker login -u '${{ secrets.DOCKERHUB_USERNAME }}' --password-stdin
             
+            echo 'Pulling latest images...'
             docker compose pull
+            
+            echo 'Stopping current services...'
             docker compose down
+            
+            echo 'Starting services in detached mode...'
             docker compose up -d
           "
 
@@ -266,19 +284,25 @@ jobs:
           echo "Waiting for backend service to become healthy..."
           attempt=1
           max_attempts=12
+          healthy=false
           while [ $attempt -le $max_attempts ]; do
             response=$(curl -s -w "%{http_code}" -o /dev/null http://${{ env.EC2_IP }}:8000/health || true)
             if [ "$response" = "200" ]; then
               echo "✅ Backend service is healthy!"
+              healthy=true
               break
             fi
             echo "Waiting for service (attempt $attempt/$max_attempts, response code: $response)..."
             sleep 5
             attempt=$((attempt+1))
           done
-          if [ $attempt -gt $max_attempts ]; then
-            echo "❌ Backend service failed to become healthy. Logs:"
-            ssh ubuntu@${{ env.EC2_IP }} "cd /home/ubuntu/infrasight && docker compose logs backend --tail=100"
+          
+          if [ "$healthy" = "false" ]; then
+            echo "❌ ERROR: Backend service failed health validation (did not return HTTP 200)."
+            echo "=== BACKEND SERVICE LOGS ==="
+            ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "cd /home/ubuntu/infrasight && docker compose logs backend --tail=100" || true
+            echo "=== DOCKER COMPOSE PROCESS STATUS ==="
+            ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "cd /home/ubuntu/infrasight && docker compose ps" || true
             exit 1
           fi
 
@@ -290,4 +314,20 @@ jobs:
           echo "=========================================================="
           echo "Frontend Web App URL: http://${{ env.EC2_IP }}"
           echo "Backend Swagger Docs: http://${{ env.EC2_IP }}:8000/docs"
+          echo "=========================================================="
+
+      - name: Collect Deployment Diagnostics on Failure
+        if: failure()
+        run: |
+          echo "=========================================================="
+          echo "❌ DEPLOYMENT FAILURE: Collecting EC2 Diagnostics..."
+          echo "=========================================================="
+          echo "--- Docker Systemd Service Status ---"
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "systemctl status docker" || true
+          echo "--- All Running and Stopped Containers ---"
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "docker ps -a" || true
+          echo "--- Docker Compose Container Status ---"
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "cd /home/ubuntu/infrasight && docker compose ps" || true
+          echo "--- Docker Compose logs (Last 100 lines) ---"
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "cd /home/ubuntu/infrasight && docker compose logs --tail=100" || true
           echo "=========================================================="
