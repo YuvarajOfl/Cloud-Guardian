@@ -51,10 +51,12 @@ logger.info("-------------------------------------------------")
 # Import models to ensure they are registered on Base for table creation
 from backend.models.user import User
 from backend.models.terraform import TerraformFile, TerraformResource, SecurityFinding, AIInsight, ReportHistory, AIAnalysisCache, AIFollowUpCache
+from backend.models.audit import LoginLog, UsageLog, FailedLogin
 from backend.routes.auth import router as auth_router
 from backend.routes.health import router as health_router
 from backend.routes.terraform import router as terraform_router
 from backend.routes.ai import router as ai_router
+from backend.routes.admin import router as admin_router
 from backend.middleware.error_handler import setup_exception_handlers
 
 # Automatically generate database tables and directories on startup
@@ -62,6 +64,12 @@ try:
     logger.info("Initializing database schemas...")
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables initialized successfully.")
+
+    # Backfill role column for any existing users
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE users SET role = 'user' WHERE role IS NULL"))
+    logger.info("Database role backfill completed successfully.")
 
     # Ensure uploads folders exist defensively on startup
     import os
@@ -109,6 +117,7 @@ app.include_router(auth_router)
 app.include_router(health_router)
 app.include_router(terraform_router)
 app.include_router(ai_router)
+app.include_router(admin_router)
 
 @app.get("/")
 async def root():

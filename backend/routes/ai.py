@@ -113,6 +113,9 @@ async def generate_ai_analysis(
             detail=f"{finding_type.capitalize()} finding not found or access denied."
         )
 
+    from backend.services.audit_service import log_usage_action
+    log_usage_action(db, current_user.id, "RUN_ANALYSIS")
+
     # 2. Check Local Cache
     cached_insight = db.query(AIInsight).filter(
         AIInsight.finding_id == finding_id, 

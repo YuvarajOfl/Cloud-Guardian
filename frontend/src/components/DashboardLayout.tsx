@@ -11,7 +11,9 @@ import {
   Sparkles,
   FileText,
   ChevronDown,
-  Settings
+  Settings,
+  Users,
+  Terminal
 } from 'lucide-react';
 
 export function DashboardLayout() {
@@ -133,6 +135,69 @@ export function DashboardLayout() {
                 <FileText className="h-4 w-4 text-pink-400" />
                 <span>Reports</span>
               </NavLink>
+
+              {user?.role === 'admin' && (
+                <div className="pt-4 mt-4 border-t border-white/5 space-y-1">
+                  <span className="px-3 text-[9px] font-bold uppercase tracking-widest text-slate-500 block mb-2">Admin Control</span>
+                  
+                  <NavLink 
+                    to="/admin" 
+                    end
+                    className={({ isActive }) => 
+                      `w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold tracking-wide transition-all ${
+                        isActive 
+                          ? 'bg-white/5 border border-white/10 text-white shadow-inner' 
+                          : 'hover:bg-white/[0.02] border border-transparent text-slate-400 hover:text-slate-200'
+                      }`
+                    }
+                  >
+                    <LayoutDashboard className="h-4 w-4 text-purple-400" />
+                    <span>Admin Dashboard</span>
+                  </NavLink>
+
+                  <NavLink 
+                    to="/admin/users" 
+                    className={({ isActive }) => 
+                      `w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold tracking-wide transition-all ${
+                        isActive 
+                          ? 'bg-white/5 border border-white/10 text-white shadow-inner' 
+                          : 'hover:bg-white/[0.02] border border-transparent text-slate-400 hover:text-slate-200'
+                      }`
+                    }
+                  >
+                    <Users className="h-4 w-4 text-teal-400" />
+                    <span>User Management</span>
+                  </NavLink>
+
+                  <NavLink 
+                    to="/admin/logs" 
+                    className={({ isActive }) => 
+                      `w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold tracking-wide transition-all ${
+                        isActive 
+                          ? 'bg-white/5 border border-white/10 text-white shadow-inner' 
+                          : 'hover:bg-white/[0.02] border border-transparent text-slate-400 hover:text-slate-200'
+                      }`
+                    }
+                  >
+                    <Terminal className="h-4 w-4 text-amber-400" />
+                    <span>Logs Audit</span>
+                  </NavLink>
+
+                  <NavLink 
+                    to="/admin/security" 
+                    className={({ isActive }) => 
+                      `w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold tracking-wide transition-all ${
+                        isActive 
+                          ? 'bg-white/5 border border-white/10 text-white shadow-inner' 
+                          : 'hover:bg-white/[0.02] border border-transparent text-slate-400 hover:text-slate-200'
+                      }`
+                    }
+                  >
+                    <ShieldAlert className="h-4 w-4 text-rose-500" />
+                    <span>Security Telemetry</span>
+                  </NavLink>
+                </div>
+              )}
             </div>
           </div>
 

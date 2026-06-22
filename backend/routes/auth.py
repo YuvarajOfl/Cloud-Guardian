@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from backend.database.session import get_db
@@ -54,20 +54,37 @@ async def get_current_user(
 
     return user
 
+async def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
+    """
+    Dependency to validate if the currently logged-in user is an administrator.
+    """
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access forbidden: Admin privilege required."
+        )
+    return current_user
+
 @router.post("/google", response_model=TokenResponse)
 async def login_with_google(
     payload: GoogleLoginRequest,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
     Verifies a Google OAuth ID token. If the user is new, creates their record.
     Generates a secure application JWT.
     """
+    from backend.services.audit_service import log_login_success, log_login_failure
     try:
-        return auth_service.authenticate_google_user(db, payload.google_token)
+        res = auth_service.authenticate_google_user(db, payload.google_token)
+        log_login_success(db, res.user.id, res.user.email, "google", request)
+        return res
     except HTTPException as http_exc:
+        log_login_failure(db, "google_oauth_attempt", request)
         raise http_exc
     except Exception as e:
+        log_login_failure(db, "google_oauth_attempt", request)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred during Google authentication: {str(e)}"
@@ -81,11 +98,16 @@ async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
 
 @router.post("/logout")
-async def logout(current_user: User = Depends(get_current_user)):
+async def logout(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """
     Invalidates user session. Since JWT is stateless, client destroys token.
     This endpoint verifies the token is valid, then returns a success response.
     """
+    from backend.services.audit_service import log_usage_action
+    log_usage_action(db, current_user.id, "LOGOUT")
     return {
         "success": True,
         "message": f"Successfully logged out user: {current_user.email}"
@@ -102,16 +124,22 @@ async def get_auth_config():
 @router.post("/login", response_model=TokenResponse)
 async def login_with_email(
     payload: EmailLoginRequest,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
     Verifies email and password, and returns a signed JWT access token.
     """
+    from backend.services.audit_service import log_login_success, log_login_failure
     try:
-        return auth_service.authenticate_email_user(db, payload.email, payload.password)
+        res = auth_service.authenticate_email_user(db, payload.email, payload.password)
+        log_login_success(db, res.user.id, res.user.email, "email", request)
+        return res
     except HTTPException as http_exc:
+        log_login_failure(db, payload.email, request)
         raise http_exc
     except Exception as e:
+        log_login_failure(db, payload.email, request)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred during authentication: {str(e)}"

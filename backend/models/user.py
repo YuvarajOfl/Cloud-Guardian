@@ -12,7 +12,7 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=True)
     provider = Column(String(50), nullable=False, default="local")
-    role = Column(String(50), nullable=True)
+    role = Column(String(50), nullable=True, default="user", server_default="user")
     profile_picture = Column(String(1024), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

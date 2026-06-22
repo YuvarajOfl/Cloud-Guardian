@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import { LoginPage } from './components/LoginPage';
 import { RegisterPage } from './components/RegisterPage';
@@ -11,11 +11,15 @@ import { AIAdvisor } from './components/AIAdvisor';
 import { Reports } from './components/Reports';
 import { ProfilePage } from './components/ProfilePage';
 import { SettingsPage } from './components/SettingsPage';
+import { AdminDashboard } from './components/AdminDashboard';
+import { AdminUsers } from './components/AdminUsers';
+import { AdminUserDetail } from './components/AdminUserDetail';
+import { AdminLogs } from './components/AdminLogs';
+import { AdminSecurity } from './components/AdminSecurity';
 
 
-// Protected Route wrapper component
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth();
+function ProtectedRoute({ children, requiredRole }: { children: React.ReactNode; requiredRole?: string }) {
+  const { user, isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
     return (
@@ -30,6 +34,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (requiredRole && user?.role !== requiredRole) {
+    return <Navigate to="/dashboard" replace />;
   }
 
   return <>{children}</>;
@@ -106,6 +114,21 @@ export default function App() {
         <Route path="/dashboard/reports" element={<Reports />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/settings" element={<SettingsPage />} />
+
+        {/* Admin Section */}
+        <Route 
+          element={
+            <ProtectedRoute requiredRole="admin">
+              <Outlet />
+            </ProtectedRoute>
+          }
+        >
+          <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/admin/users" element={<AdminUsers />} />
+          <Route path="/admin/user/:id" element={<AdminUserDetail />} />
+          <Route path="/admin/logs" element={<AdminLogs />} />
+          <Route path="/admin/security" element={<AdminSecurity />} />
+        </Route>
       </Route>
       <Route 
         path="*" 

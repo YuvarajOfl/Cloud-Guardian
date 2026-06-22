@@ -97,6 +97,8 @@ async def upload_terraform_file(
                 file_name=target_filename,
                 file_contents=contents
             )
+        from backend.services.audit_service import log_usage_action
+        log_usage_action(db, current_user.id, "UPLOAD_FILE")
         return db_file
     except ValueError as val_err:
         raise HTTPException(
@@ -247,6 +249,8 @@ async def run_cost_optimization(
     try:
         from backend.services.cost_service import run_cost_analysis
         findings = run_cost_analysis(db=db, file_id=file_id, user_id=current_user.id, resources=resources)
+        from backend.services.audit_service import log_usage_action
+        log_usage_action(db, current_user.id, "RUN_ANALYSIS")
         return findings
     except Exception as e:
         raise HTTPException(
@@ -358,6 +362,8 @@ async def generate_report(
         db.commit()
         db.refresh(new_report)
 
+        from backend.services.audit_service import log_usage_action
+        log_usage_action(db, current_user.id, "GENERATE_REPORT")
         return new_report
     except Exception as e:
         logger.error(f"Failed to generate and store report: {e}")
@@ -413,6 +419,9 @@ async def download_stored_report(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Physical report file not found on disk."
         )
+
+    from backend.services.audit_service import log_usage_action
+    log_usage_action(db, current_user.id, "DOWNLOAD_REPORT")
 
     return FileResponse(
         path=report.file_path,
