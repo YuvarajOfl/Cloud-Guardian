@@ -1,216 +1,263 @@
 # 🛡️ InfraSight
 
-### A Cloud Security & Cost Governance Platform for Terraform Infrastructure
+> Understand Infrastructure Before Deployment.
 
-InfraSight is a secure, production-grade cloud security and cost governance platform designed to analyze Terraform configurations. Built for Cloud Architects, DevOps Engineers, and Security Teams, the platform provides automated security misconfiguration scanning, estimated monthly cost projections, and Gemini-powered AI remediation guidance. InfraSight enables organizations to identify architectural risks and cost wastes early in the development lifecycle before resources are provisioned in public cloud providers.
+InfraSight helps developers and cloud teams analyze Terraform infrastructure before deployment. It identifies security risks, highlights cost optimization opportunities, generates assessment reports, and provides AI-powered remediation guidance.
 
 ---
 
-## 🔍 Key Features
+## ✨ Features
 
 ### 🔍 Terraform Infrastructure Analysis
-* **HCL Parsing Engine:** Parses uploaded Terraform (`.tf`) files using a robust Python HCL2 parser.
-* **Resource Discovery:** Automatically extracts and catalogs cloud resource definitions, variables, and metadata properties.
-* **Configuration Analysis:** Resolves relationships and cross-resource configurations in the HCL source directory.
+
+* Upload and analyze Terraform files
+* Discover infrastructure resources
+* Generate infrastructure insights
 
 ### 🛡️ Security Assessment
-* **Misconfiguration Detection:** Checks for security violations (e.g. wildcard IAM policies, exposed databases, open ingress rules).
-* **Severity-Based Classification:** Classes findings into Critical, High, Medium, and Low risk severity levels.
-* **Risk Severity Analysis:** Displays actionable descriptions and remediation instructions for every discovered vulnerability.
+
+* Detect cloud security misconfigurations
+* Classify findings by severity
+* Provide remediation recommendations
 
 ### 💰 Cost Optimization
-* **Resource Cost Analysis:** Projects monthly operational costs for compute instances and EBS volumes prior to provisioning.
-* **Savings Recommendations:** Identifies unattached EBS storage volumes and over-provisioned instance sizes.
-* **Cost Visibility:** Delivers real-time cost visibility and optimization recommendations within the platform dashboard.
+
+* Identify inefficient cloud resources
+* Estimate potential cost savings
+* Highlight optimization opportunities
 
 ### 🤖 AI Security Advisor
-* **Gemini-Powered Recommendations:** Integrates with the Google Gemini API to analyze findings and suggest remediation strategies.
-* **Security Guidance:** Provides detailed explanations of why specific configurations are vulnerable.
-* **Remediation Suggestions:** Generates secure Terraform HCL snippets that can be directly pasted to resolve issues.
+
+* Gemini-powered recommendations
+* Terraform best practices
+* Security guidance and explanations
 
 ### 📄 PDF Report Generation
-* **Compliance PDF Reports:** Compiles findings into beautifully formatted PDF reports using a multi-pass ReportLab engine.
-* **Security & Cost Reports:** Generates modular reports detailing security status, cost waste, or full-scope assessments.
-* **Dynamic Table Layouts:** Formats pages, total counts, dates, and tables cleanly for printable distributions.
 
-### 👤 Authentication & Session Management
-* **Google OAuth 2.0:** Enables secure enterprise SSO login flows.
-* **Email & Password Login:** Implements password credentials protected by bcrypt hashing.
-* **JWT & Sessions:** Authorizes API requests using stateless JSON Web Tokens (JWT) with secure expiration policies.
+* Security assessment reports
+* Cost optimization reports
+* Complete infrastructure reports
+
+### 👤 Authentication
+
+* Google OAuth Login
+* Email & Password Login
+* JWT Authentication
+* Session Management
 
 ### 🏢 Admin Control Center
-* **User & Role Management:** Controls user activation, deletion, and role elevation (Admin vs. Standard User).
-* **Security Telemetry:** Tracks usage stats, uploaded configuration records, and system analytics.
-* **Audit & Login Logs:** Audits detailed user access events, tracking timestamps, IP addresses, and user-agent strings.
-* **Failed Login Monitoring:** Logs and tracks failed attempts to identify brute-force attacks.
+
+* User Management
+* Role Management
+* Audit Logs
+* Security Telemetry
+* Login Monitoring
 
 ---
 
-## 🏗️ System Architecture
+## 🏗️ Architecture
 
-The following diagram outlines the system architecture of the InfraSight platform:
-
-```
-      User Browser (React UI)
-                 │
-                 │ (HTTP / JWT Auth)
-                 ▼
-          FastAPI Backend
-                 │
-      ┌──────────┴──────────┐
-      ▼                     ▼
-HCL Parser Engine     AI Advisor Module
- (python-hcl2)         (Gemini API)
-      │
-      ├─────────────────────┐
-      ▼                     ▼
-Security Scanner      Cost Analyzer
-      │                     │
-      └──────────┬──────────┘
-                 ▼
-         Database Connection
-      (MySQL 8.0 / SQLite 3)
+```text
+User
+  │
+  ▼
+React + TypeScript Frontend
+  │
+  ▼
+FastAPI Backend
+  │
+  ├── Authentication Service
+  ├── Terraform Analysis Engine
+  ├── Security Scanner
+  ├── Cost Optimization Engine
+  ├── AI Security Advisor
+  ├── PDF Report Generator
+  └── Admin Control Center
+  │
+  ▼
+MySQL Database
+  │
+  ▼
+Docker Containers
+  │
+  ▼
+AWS EC2
 ```
 
 ---
 
-## 🛠️ Technology Stack
+## 🛠️ Tech Stack
 
-| Category | Technology | Usage Description |
-| :--- | :--- | :--- |
-| **Frontend** | React 19, TypeScript, Vite | Asynchronous single-page UI architecture |
-| **Styling** | Tailwind CSS v4, Motion | Clean grid layouts, responsive forms, and micro-animations |
-| **Backend** | FastAPI (Python 3.11), Uvicorn | Asynchronous REST API framework |
-| **Database** | MySQL 8.0 | Primary relational database for production deployments |
-| **Fallback DB** | SQLite | Automatic local development fallback |
-| **Authentication** | JWT, Google OAuth 2.0, bcrypt | Secure sessions, SSO authentication, and password security |
-| **AI** | Gemini API (`google-generativeai`) | Generates secure IaC remediation configurations |
-| **PDF Generation** | ReportLab | Compiles customized audit assessment PDF reports |
-| **DevOps** | Docker, Docker Compose | Containerized application builds and multi-container runtime |
-| **IaC** | Terraform (v1.5.0) | Automated AWS infrastructure definition and creation |
-| **CI/CD** | GitHub Actions | Workflows for testing, image builds, and EC2 deployment |
+| Category               | Technologies             |
+| ---------------------- | ------------------------ |
+| Frontend               | React, TypeScript, Vite  |
+| Backend                | FastAPI, Python          |
+| Database               | MySQL 8, SQLite Fallback |
+| Authentication         | Google OAuth, JWT        |
+| AI                     | Google Gemini            |
+| Cloud                  | AWS EC2                  |
+| Containers             | Docker, Docker Compose   |
+| Infrastructure as Code | Terraform                |
+| CI/CD                  | GitHub Actions           |
+| Version Control        | Git, GitHub              |
 
 ---
 
 ## 🚀 CI/CD & Deployment
 
-InfraSight utilizes structured GitHub Actions workflows for validation and automated deployment:
+### 🧪 CI Validation
 
-### 🧪 CI Validation (`ci-validation.yml`)
-* Runs code linting (ESLint for the frontend; Ruff for backend Python code).
-* Executes backend unit tests using `pytest` (excluding long integration tests).
-* Verifies production build assets (React compile and Docker backend build check).
+* Frontend & Backend Linting
+* Automated Testing
+* Build Verification
 
-### 🚀 Application Deployment (`application-deploy.yml`)
-* Automatically builds production Docker images for the frontend and backend.
-* Pushes the built container images to Docker Hub under the tags `latest` and `SHA`.
-* Connects to the AWS EC2 instance via SSH, updates the environment variables, pulls the latest Docker images, restarts services, and verifies service health via HTTP status codes.
+### 🚀 Application Deployment
 
-### 🏗️ Infrastructure Provisioning (`infrastructure-provision.yml`)
-* Provisions cloud resources on AWS using HashiCorp Terraform.
-* Sets up a secure VPC, Security Groups (ports 22, 80, 443, 8000), EC2 Host, and associates an Elastic IP.
+* Build Docker Images
+* Push Images to Docker Hub
+* Deploy to AWS EC2
+* Health Verification
 
----
+### 🏗️ Infrastructure Provisioning
 
-## 💾 Database Architecture
-
-* **Primary Database (MySQL 8):** In production and Docker Compose environments, the application uses MySQL to store user data, telemetry, and scan findings.
-* **Fallback Database (SQLite):** To simplify local onboarding during development, the application attempts to connect to MySQL first and automatically falls back to a local SQLite database (`infrasight.db`) if MySQL is unavailable.
+* Terraform Plan
+* Terraform Apply
+* Infrastructure Deployment
 
 ---
 
-## 🔒 Security Features
+## 🗄️ Database
 
-* **JWT Sessions:** Authenticates API requests using signed, expiring JSON Web Tokens.
-* **Google OAuth:** Protects user authentication against brute-force vectoring using standard Google identity providers.
-* **RBAC Enforcement:** Safeguards backend endpoints, requiring Administrator privileges for logs, user tables, and security logs.
-* **Failed Login Monitoring:** Records IP addresses and timestamps of failed authentication requests to intercept anomalies.
-* **Audit Logs:** Logs system usage events (e.g. running scans, deleting documents, downloading reports) for security auditing.
+**Primary Database**
+
+* MySQL 8
+
+**Fallback Database**
+
+* SQLite
+
+The application attempts to connect to MySQL first. If unavailable during development, it automatically falls back to SQLite.
 
 ---
 
-## 💻 Local Setup
+## 🔐 Security Features
+
+* JWT Authentication
+* Google OAuth Integration
+* Role-Based Access Control (RBAC)
+* Protected Admin Routes
+* Audit Logging
+* Failed Login Monitoring
+* Security Telemetry Dashboard
+* Session Tracking
+
+---
+
+## ⚙️ Local Setup
 
 ### Clone Repository
+
 ```bash
-git clone https://github.com/YuvarajOfl/Cloud-Guardian.git
-cd Cloud-Guardian
+git clone https://github.com/YuvarajOfl/InfraSight.git
+cd InfraSight
 ```
 
 ### Backend Setup
+
 ```bash
 cd backend
-python -m venv venv
-
-# On Windows:
-venv\Scripts\activate
-# On macOS/Linux:
-source venv/bin/activate
 
 pip install -r requirements.txt
-cp .env.example .env
-# Edit .env and supply your JWT_SECRET and GEMINI_API_KEY
-uvicorn backend.main:app --reload
+
+uvicorn main:app --reload
 ```
 
 ### Frontend Setup
+
 ```bash
-cd ../frontend
+cd frontend
+
 npm install
+
 npm run dev
 ```
 
 ### Docker Setup
-To spin up the entire application stack including the MySQL database:
+
 ```bash
-docker compose up --build
+docker compose up -d
 ```
 
 ---
 
-## 🖼️ Project Screenshots
+## 📸 Screenshots
 
 ### Dashboard
-![Dashboard Placeholder](https://raw.githubusercontent.com/YuvarajOfl/Cloud-Guardian/main/docs/screenshots/dashboard.png)
+
+![Dashboard](<img width="1920" height="1080" alt="Screenshot (820)" src="https://github.com/user-attachments/assets/7cb49d33-b6b8-4397-b3af-22d739898d98" />)
 
 ### Infrastructure Analysis
-![Infrastructure Analysis Placeholder](https://raw.githubusercontent.com/YuvarajOfl/Cloud-Guardian/main/docs/screenshots/analysis.png)
 
-### AI Advisor
-![AI Advisor Placeholder](https://raw.githubusercontent.com/YuvarajOfl/Cloud-Guardian/main/docs/screenshots/ai_advisor.png)
+![Infrastructure Analysis](docs/images/analysis.png)
+
+### AI Security Advisor
+
+![AI Advisor](<img width="1920" height="1080" alt="Screenshot (819)" src="https://github.com/user-attachments/assets/b2addb98-cf09-4389-90b8-685e6dd337d7" />
+)
 
 ### Reports
-![Reports Placeholder](https://raw.githubusercontent.com/YuvarajOfl/Cloud-Guardian/main/docs/screenshots/reports.png)
+
+![Reports](<img width="1920" height="1080" alt="Screenshot (821)" src="https://github.com/user-attachments/assets/704e58f3-2f83-418d-aa9e-a7ee8a05c787" />
+)
 
 ### Admin Control Center
-![Admin Control Center Placeholder](https://raw.githubusercontent.com/YuvarajOfl/Cloud-Guardian/main/docs/screenshots/admin.png)
+
+![Admin Panel](<img width="1920" height="1080" alt="Screenshot (823)" src="https://github.com/user-attachments/assets/b9153e40-4eb5-4c88-923e-2b76bced1efc" />
+)
 
 ---
 
-## 🎓 Learning Outcomes
+## 🎯 Learning Outcomes
 
-* **Cloud Security Analysis:** Applied automated security scanning against Terraform configurations to detect risk vectors.
-* **FastAPI Microservices:** Built robust APIs using ASGI servers, SQLAlchemy ORM, and dependency injection.
-* **React 19 & TypeScript:** Engineered modular, type-safe components using Tailwind CSS and Framer Motion.
-* **Docker Container Orchestration:** Managed multi-container Docker applications and image builds.
-* **Continuous Integration/Deployment:** Built complete validation and SSH-based AWS deployment pipelines.
-* **Authentication & RBAC:** Implemented JWT security, Google OAuth, and granular role-based authorization rules.
+This project demonstrates practical experience with:
 
----
-
-## 🔮 Future Enhancements
-
-* **PostgreSQL Support:** Introduce PostgreSQL connection support as an alternative relational database.
-* **AWS RDS Integration:** Transition container databases to a fully managed Amazon RDS cluster.
-* **S3 Report Storage:** Upload generated PDF compliance reports to a secure AWS S3 bucket.
-* **Multi-Tenant Organizations:** Support organization scopes, user groups, and workspace sharing.
-* **Advanced Security Rules:** Implement static compliance scanning matching CIS and SOC2 benchmarks.
-* **Real-Time Monitoring:** Add real-time event updates and notifications for configuration scans.
+* Cloud Security
+* Terraform
+* FastAPI
+* React
+* Docker
+* GitHub Actions
+* AWS EC2
+* Authentication Systems
+* RBAC
+* DevOps Practices
 
 ---
 
-## 👥 Author
+## 🔮 Future Improvements
 
-* **Name:** Yuvaraj T
-* **GitHub:** [https://github.com/YuvarajOfl](https://github.com/YuvarajOfl)
-* **LinkedIn:** [www.linkedin.com/in/yuvaraj8](https://www.linkedin.com/in/yuvaraj8)
+* PostgreSQL Support
+* AWS RDS Integration
+* Amazon S3 Report Storage
+* Advanced Security Rules
+* Real-Time Monitoring
+* Multi-Tenant Organizations
+
+---
+
+## 👨‍💻 Author
+
+**Yuvaraj**
+
+* GitHub: https://github.com/YuvarajOfl
+* LinkedIn: https://www.linkedin.com/in/yuvaraj8/
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License.
+
+---
+
+⭐ If you found this project useful, consider giving it a star.
