@@ -121,7 +121,7 @@ jobs:
       - name: Verify SSH Connection
         run: |
           echo "Verifying SSH connection to EC2..."
-          if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@${{ env.EC2_IP }} "echo SSH_CONNECTION_SUCCESS" | grep -q "SSH_CONNECTION_SUCCESS"; then
+          if ssh -n -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o ConnectTimeout=10 ubuntu@${{ env.EC2_IP }} "echo SSH_CONNECTION_SUCCESS" | grep -q "SSH_CONNECTION_SUCCESS"; then
             echo "SSH_CONNECTION_SUCCESS"
           else
             echo "❌ ERROR: SSH connection to EC2 is unavailable."
@@ -131,7 +131,7 @@ jobs:
       - name: Verify Remote Directory Structure
         run: |
           echo "Ensuring deployment directory /home/ubuntu/infrasight exists..."
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "mkdir -p /home/ubuntu/infrasight"
+          ssh -n -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "mkdir -p /home/ubuntu/infrasight"
 
       # Transfer and Deploy Config
       - name: Copy Docker Compose Configuration
@@ -155,7 +155,7 @@ jobs:
 
       - name: Execute Remote Deploy Commands
         run: |
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "
+          ssh -n -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "
             cd /home/ubuntu/infrasight
             
             # Authenticate to Docker Hub
@@ -192,9 +192,9 @@ jobs:
           if [ "$healthy" = "false" ]; then
             echo "❌ ERROR: Backend service failed health validation (did not return HTTP 200)."
             echo "=== BACKEND SERVICE LOGS ==="
-            ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "cd /home/ubuntu/infrasight && docker compose logs backend --tail=100" || true
+            ssh -n -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "cd /home/ubuntu/infrasight && docker compose logs backend --tail=100" || true
             echo "=== DOCKER COMPOSE PROCESS STATUS ==="
-            ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "cd /home/ubuntu/infrasight && docker compose ps" || true
+            ssh -n -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "cd /home/ubuntu/infrasight && docker compose ps" || true
             exit 1
           fi
 
@@ -207,7 +207,7 @@ jobs:
           fi
 
           echo "Checking container status..."
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "
+          ssh -n -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "
             cd /home/ubuntu/infrasight
             docker compose ps
           "
@@ -234,11 +234,11 @@ jobs:
           echo "❌ DEPLOYMENT FAILURE: Collecting EC2 Diagnostics..."
           echo "=========================================================="
           echo "--- Docker Systemd Service Status ---"
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "systemctl status docker" || true
+          ssh -n -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "systemctl status docker" || true
           echo "--- All Running and Stopped Containers ---"
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "docker ps -a" || true
+          ssh -n -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "docker ps -a" || true
           echo "--- Docker Compose Container Status ---"
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "cd /home/ubuntu/infrasight && docker compose ps" || true
+          ssh -n -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "cd /home/ubuntu/infrasight && docker compose ps" || true
           echo "--- Docker Compose logs (Last 100 lines) ---"
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "cd /home/ubuntu/infrasight && docker compose logs --tail=100" || true
+          ssh -n -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "cd /home/ubuntu/infrasight && docker compose logs --tail=100" || true
           echo "=========================================================="
