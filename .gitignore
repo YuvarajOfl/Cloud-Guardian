@@ -5,11 +5,10 @@ __pycache__/
 venv/
 *.db
 .env
-.env.local
-.env.production
+*.env
 backend/.env
-backend/.env.local
-backend/.env.production
+frontend/.env
+!.env.example
 uploads/
 .gemini/
 *.log

@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     ADMIN_PASSWORD: str = ""
 
     # Google OAuth Configuration
-    GOOGLE_CLIENT_ID: str = "915887390862-fcgaqrabnob077qjicmpaf79db80cqic.apps.googleusercontent.com"
+    GOOGLE_CLIENT_ID: str = "your_google_client_id_here"
     GOOGLE_CLIENT_SECRET: str = ""
 
     # Gemini API Key Configuration

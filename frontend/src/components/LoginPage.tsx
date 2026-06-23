@@ -15,7 +15,7 @@ import {
 export function LoginPage() {
   const { loginWithGoogleToken, loginWithEmailAndPassword, isLoading: authLoading } = useAuth();
   const [error, setError] = useState<string | null>(null);
-  const [activeClientId, setActiveClientId] = useState<string>(import.meta.env.VITE_GOOGLE_CLIENT_ID || '915887390862-fcgaqrabnob077qjicmpaf79db80cqic.apps.googleusercontent.com');
+  const [activeClientId, setActiveClientId] = useState<string>(import.meta.env.VITE_GOOGLE_CLIENT_ID || 'your_google_client_id_here');
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
