@@ -52,11 +52,15 @@ export function ProfilePage() {
           <div className="text-center sm:text-left space-y-1.5">
             <h2 className="text-lg font-bold text-white">{user.name}</h2>
             <div className="flex flex-wrap justify-center sm:justify-start items-center gap-2">
-              <span className="text-[9px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 bg-blue-500/15 border border-blue-500/20 text-blue-400 rounded">
-                Provider: {user.provider === 'google' ? 'Google OAuth' : 'Local Account'}
-              </span>
               <span className="text-[9px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 bg-emerald-500/15 border border-emerald-500/20 text-emerald-400 rounded">
-                Access Level: {user.provider === 'google' ? 'Authenticated User' : 'Standard User'}
+                Access Level: {user.access_level || (user.role === 'admin' ? 'Administrator' : 'Standard User')}
+              </span>
+              <span className={`text-[9px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+                user.role === 'admin'
+                  ? 'bg-purple-500/15 border border-purple-500/20 text-purple-400'
+                  : 'bg-emerald-500/15 border border-emerald-500/20 text-emerald-400'
+              }`}>
+                Provider: {user.provider === 'google' ? 'Google OAuth' : 'Local Account'}
               </span>
             </div>
           </div>
@@ -115,12 +119,12 @@ export function ProfilePage() {
           </div>
 
           <div className="p-4 bg-slate-950/40 border border-white/5 rounded-xl flex items-start gap-3">
-            <div className="p-2 bg-rose-500/10 text-rose-400 rounded-lg">
+            <div className={`p-2 rounded-lg ${user.role === 'admin' ? 'bg-purple-500/10 text-purple-400' : 'bg-rose-500/10 text-rose-400'}`}>
               <Shield className="h-4 w-4" />
             </div>
             <div className="space-y-0.5">
               <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">Access Level</span>
-              <span className="text-sm font-semibold text-slate-200 block">{user.provider === 'google' ? 'Authenticated User' : 'Standard User'}</span>
+              <span className="text-sm font-semibold text-slate-200 block">{user.access_level || (user.role === 'admin' ? 'Administrator' : 'Standard User')}</span>
             </div>
           </div>
         </div>

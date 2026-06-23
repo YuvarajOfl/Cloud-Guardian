@@ -24,15 +24,7 @@ def setup_test_users():
         db.query(FailedLogin).delete()
         db.query(UsageLog).delete()
         db.query(LoginLog).delete()
-        
-        test_user = db.query(User).filter(User.email == "normal_user@example.com").first()
-        if test_user:
-            db.delete(test_user)
-            
-        test_admin = db.query(User).filter(User.email == "admin_user@example.com").first()
-        if test_admin:
-            db.delete(test_admin)
-            
+        db.query(User).delete()
         db.commit()
         
         # Insert fresh users
@@ -70,15 +62,7 @@ def setup_test_users():
         db.query(FailedLogin).delete()
         db.query(UsageLog).delete()
         db.query(LoginLog).delete()
-        
-        test_user = db.query(User).filter(User.email == "normal_user@example.com").first()
-        if test_user:
-            db.delete(test_user)
-            
-        test_admin = db.query(User).filter(User.email == "admin_user@example.com").first()
-        if test_admin:
-            db.delete(test_admin)
-            
+        db.query(User).delete()
         db.commit()
     finally:
         db.close()
@@ -268,3 +252,129 @@ def test_bootstrap_logic_idempotency():
         db.commit()
     finally:
         db.close()
+
+
+def test_profile_api_returns_role_and_access_level():
+    """
+    Verifies that the /auth/me profile endpoint returns is_admin, role, and access_level.
+    """
+    headers = get_auth_headers("admin_user@example.com", "testpassword123")
+    response = client.get("/auth/me", headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["role"] == "admin"
+    assert data["is_admin"] is True
+    assert data["access_level"] == "Administrator"
+
+    normal_headers = get_auth_headers("normal_user@example.com", "testpassword123")
+    response = client.get("/auth/me", headers=normal_headers)
+    assert response.status_code == 200
+    normal_data = response.json()
+    assert normal_data["role"] == "user"
+    assert normal_data["is_admin"] is False
+    assert normal_data["access_level"] == "Standard User"
+
+
+def test_admin_user_actions_and_safety_rules():
+    """
+    Verifies disable, enable, promote, demote, delete actions and their safety rules.
+    """
+    admin_headers = get_auth_headers("admin_user@example.com", "testpassword123")
+    
+    # 1. Prevent disabling own account
+    response = client.post(f"/api/admin/user/{pytest.admin_user_id}/disable", headers=admin_headers)
+    assert response.status_code == 400
+    assert "Cannot disable your own account." in response.json()["detail"]
+
+    # 2. Disable normal user
+    response = client.post(f"/api/admin/user/{pytest.normal_user_id}/disable", headers=admin_headers)
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert response.json()["user"]["is_active"] is False
+
+    # Check that usage log for user_disabled is created
+    db = SessionLocal()
+    try:
+        log = db.query(UsageLog).filter(UsageLog.action == "user_disabled").first()
+        assert log is not None
+        assert log.user_id == pytest.admin_user_id
+    finally:
+        db.close()
+
+    # 3. Disabled user cannot authenticate
+    payload = {
+        "email": "normal_user@example.com",
+        "password": "testpassword123"
+    }
+    response = client.post("/auth/login", json=payload)
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Account disabled. Contact administrator."
+
+    # 4. Enable user again
+    response = client.post(f"/api/admin/user/{pytest.normal_user_id}/enable", headers=admin_headers)
+    assert response.status_code == 200
+    assert response.json()["user"]["is_active"] is True
+    
+    # Verify user_enabled audit log is created
+    db = SessionLocal()
+    try:
+        log = db.query(UsageLog).filter(UsageLog.action == "user_enabled").first()
+        assert log is not None
+    finally:
+        db.close()
+
+    # 5. Promote user to admin
+    response = client.post(f"/api/admin/user/{pytest.normal_user_id}/promote", headers=admin_headers)
+    assert response.status_code == 200
+    assert response.json()["user"]["role"] == "admin"
+
+    # Verify user_promoted audit log is created
+    db = SessionLocal()
+    try:
+        log = db.query(UsageLog).filter(UsageLog.action == "user_promoted").first()
+        assert log is not None
+    finally:
+        db.close()
+
+    # Now there are 2 active admins. Let's try demoting normal_user back to user.
+    response = client.post(f"/api/admin/user/{pytest.normal_user_id}/demote", headers=admin_headers)
+    assert response.status_code == 200
+    assert response.json()["user"]["role"] == "user"
+
+    # Verify user_demoted audit log is created
+    db = SessionLocal()
+    try:
+        log = db.query(UsageLog).filter(UsageLog.action == "user_demoted").first()
+        assert log is not None
+    finally:
+        db.close()
+
+    # 6. Prevent removing last admin account
+    response = client.post(f"/api/admin/user/{pytest.admin_user_id}/demote", headers=admin_headers)
+    assert response.status_code == 400
+    assert "Cannot remove the last administrator account." in response.json()["detail"]
+
+    # 7. Prevent deleting own account
+    response = client.delete(f"/api/admin/user/{pytest.admin_user_id}", headers=admin_headers)
+    assert response.status_code == 400
+    assert "Cannot delete your own account." in response.json()["detail"]
+
+    # 8. Soft Delete normal user
+    response = client.delete(f"/api/admin/user/{pytest.normal_user_id}", headers=admin_headers)
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+
+    # Verify user_deleted audit log is created
+    db = SessionLocal()
+    try:
+        log = db.query(UsageLog).filter(UsageLog.action == "user_deleted").first()
+        assert log is not None
+    finally:
+        db.close()
+
+    # Verify soft-deleted user is excluded from user directory list
+    response = client.get("/api/admin/users", headers=admin_headers)
+    assert response.status_code == 200
+    users_list = response.json()
+    assert all(u["id"] != pytest.normal_user_id for u in users_list)
+

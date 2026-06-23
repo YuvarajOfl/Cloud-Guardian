@@ -8,6 +8,8 @@ class UserBase(BaseModel):
     profile_picture: Optional[str] = None
     role: Optional[str] = None
     provider: str = "local"
+    is_active: Optional[bool] = True
+    is_deleted: Optional[bool] = False
 
 class UserCreate(UserBase):
     google_id: Optional[str] = None
@@ -21,6 +23,9 @@ class UserResponse(UserBase):
     google_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    is_admin: bool
+    access_level: str
+
 
     # Pydantic v2 configuration to allow serialization from SQLAlchemy models
     model_config = ConfigDict(from_attributes=True)

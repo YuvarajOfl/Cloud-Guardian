@@ -6,6 +6,10 @@ export interface User {
   profile_picture?: string;
   role?: string;
   provider: string;
+  is_active?: boolean;
+  is_deleted?: boolean;
+  is_admin?: boolean;
+  access_level?: string;
   created_at: string;
   updated_at: string;
 }

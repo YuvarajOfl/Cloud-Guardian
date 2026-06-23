@@ -30,9 +30,14 @@ def serialize_user(user: User) -> dict:
         "role": user.role or "user",
         "provider": user.provider,
         "profile_picture": user.profile_picture,
+        "is_active": user.is_active,
+        "is_deleted": user.is_deleted,
+        "is_admin": user.is_admin,
+        "access_level": user.access_level,
         "created_at": created_at_utc.isoformat(),
         "updated_at": updated_at_utc.isoformat()
     }
+
 
 @router.get("/dashboard")
 async def get_admin_dashboard(
@@ -100,7 +105,7 @@ async def get_admin_users(
     """
     Lists users with optional search and filters.
     """
-    query = db.query(User)
+    query = db.query(User).filter(User.is_deleted == False)
     
     if search:
         search_filter = f"%{search}%"
@@ -128,7 +133,7 @@ async def get_admin_user_detail(
     """
     Returns diagnostic details for a specific user.
     """
-    user_record = db.query(User).filter(User.id == id).first()
+    user_record = db.query(User).filter(User.id == id, User.is_deleted == False).first()
     if not user_record:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -395,3 +400,212 @@ async def get_bootstrap_status(
         "admin_exists": admin_exists,
         "email": email
     }
+
+
+@router.post("/user/{id}/disable")
+async def disable_user(
+    id: int,
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(get_current_admin)
+):
+    """
+    Disables an operator account. Safety guards:
+    - Cannot disable own account.
+    - Cannot disable the last active administrator account.
+    """
+    from backend.services.audit_service import log_usage_action
+    
+    target_user = db.query(User).filter(User.id == id, User.is_deleted == False).first()
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found."
+        )
+        
+    if target_user.id == admin_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot disable your own account."
+        )
+        
+    if target_user.role == "admin" and target_user.is_active:
+        # Check if this is the last active admin
+        active_admins_count = db.query(User).filter(
+            User.role == "admin",
+            User.is_active == True,
+            User.is_deleted == False
+        ).count()
+        if active_admins_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot remove the last administrator account."
+            )
+            
+    target_user.is_active = False
+    db.commit()
+    db.refresh(target_user)
+    
+    log_usage_action(db, admin_user.id, "user_disabled")
+    return {
+        "success": True,
+        "message": f"Successfully disabled operator account {target_user.email}",
+        "user": serialize_user(target_user)
+    }
+
+
+@router.post("/user/{id}/enable")
+async def enable_user(
+    id: int,
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(get_current_admin)
+):
+    """
+    Enables a disabled operator account.
+    """
+    from backend.services.audit_service import log_usage_action
+    
+    target_user = db.query(User).filter(User.id == id, User.is_deleted == False).first()
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found."
+        )
+        
+    target_user.is_active = True
+    db.commit()
+    db.refresh(target_user)
+    
+    log_usage_action(db, admin_user.id, "user_enabled")
+    return {
+        "success": True,
+        "message": f"Successfully enabled operator account {target_user.email}",
+        "user": serialize_user(target_user)
+    }
+
+
+@router.post("/user/{id}/promote")
+async def promote_user(
+    id: int,
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(get_current_admin)
+):
+    """
+    Promotes a standard user to the admin role.
+    """
+    from backend.services.audit_service import log_usage_action
+    
+    target_user = db.query(User).filter(User.id == id, User.is_deleted == False).first()
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found."
+        )
+        
+    target_user.role = "admin"
+    db.commit()
+    db.refresh(target_user)
+    
+    log_usage_action(db, admin_user.id, "user_promoted")
+    return {
+        "success": True,
+        "message": f"Successfully promoted operator {target_user.email} to administrator",
+        "user": serialize_user(target_user)
+    }
+
+
+@router.post("/user/{id}/demote")
+async def demote_user(
+    id: int,
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(get_current_admin)
+):
+    """
+    Demotes an admin to standard user. Safety guards:
+    - Cannot demote own account.
+    - Cannot demote the last active administrator account.
+    """
+    from backend.services.audit_service import log_usage_action
+    
+    target_user = db.query(User).filter(User.id == id, User.is_deleted == False).first()
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found."
+        )
+        
+    if target_user.role == "admin" and target_user.is_active:
+        # Check if this is the last active admin
+        active_admins_count = db.query(User).filter(
+            User.role == "admin",
+            User.is_active == True,
+            User.is_deleted == False
+        ).count()
+        if active_admins_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot remove the last administrator account."
+            )
+            
+    target_user.role = "user"
+    db.commit()
+    db.refresh(target_user)
+    
+    log_usage_action(db, admin_user.id, "user_demoted")
+    return {
+        "success": True,
+        "message": f"Successfully demoted operator {target_user.email} to standard user",
+        "user": serialize_user(target_user)
+    }
+
+
+@router.delete("/user/{id}")
+async def delete_user(
+    id: int,
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(get_current_admin)
+):
+    """
+    Soft-deletes an operator account. Safety guards:
+    - Cannot delete own account.
+    - Cannot delete the last active administrator account.
+    """
+    from backend.services.audit_service import log_usage_action
+    
+    target_user = db.query(User).filter(User.id == id, User.is_deleted == False).first()
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found."
+        )
+        
+    if target_user.id == admin_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete your own account."
+        )
+        
+    if target_user.role == "admin" and target_user.is_active:
+        # Check if this is the last active admin
+        active_admins_count = db.query(User).filter(
+            User.role == "admin",
+            User.is_active == True,
+            User.is_deleted == False
+        ).count()
+        if active_admins_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot remove the last administrator account."
+            )
+            
+    target_user.is_deleted = True
+    target_user.is_active = False
+    db.commit()
+    
+    log_usage_action(db, admin_user.id, "user_deleted")
+    return {
+        "success": True,
+        "message": f"Successfully deleted operator account {target_user.email}"
+    }
+
+
+

@@ -19,6 +19,8 @@ interface UserData {
   role: string;
   provider: string;
   profile_picture?: string;
+  is_active?: boolean;
+  is_deleted?: boolean;
   created_at: string;
 }
 
@@ -150,6 +152,7 @@ export function AdminUsers() {
                   <th className="px-6 py-3">Email</th>
                   <th className="px-6 py-3">Role</th>
                   <th className="px-6 py-3">Login Provider</th>
+                  <th className="px-6 py-3">Status</th>
                   <th className="px-6 py-3">Created At</th>
                   <th className="px-6 py-3 text-right">Actions</th>
                 </tr>
@@ -182,8 +185,26 @@ export function AdminUsers() {
                         {user.role || 'user'}
                       </span>
                     </td>
+                    <td className="px-6 py-3.5">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider uppercase inline-flex items-center gap-1 ${
+                        user.is_active !== false 
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/15' 
+                          : 'bg-rose-500/10 text-rose-455 border border-rose-500/15'
+                      }`}>
+                        {user.is_active !== false ? 'Active' : 'Disabled'}
+                      </span>
+                    </td>
                     <td className="px-6 py-3.5 text-slate-400 capitalize">
                       {user.provider}
+                    </td>
+                    <td className="px-6 py-3.5">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider uppercase inline-flex items-center gap-1 ${
+                        user.is_active !== false 
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/15' 
+                          : 'bg-rose-500/10 text-rose-450 border border-rose-500/15'
+                      }`}>
+                        {user.is_active !== false ? 'Active' : 'Disabled'}
+                      </span>
                     </td>
                     <td className="px-6 py-3.5 font-mono text-slate-500">
                       {new Date(user.created_at).toLocaleDateString()}

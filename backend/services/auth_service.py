@@ -67,6 +67,12 @@ def authenticate_google_user(db: Session, google_token: str) -> TokenResponse:
             user_service.update_user(db, user.id, UserUpdate(**updates))
             logger.info(f"Updated Google profile attributes for user: {email}")
 
+    if not user.is_active or user.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account disabled. Contact administrator."
+        )
+
     # 3. Generate signed JWT token
     token_payload = {
         "sub": str(user.id),
@@ -81,16 +87,23 @@ def authenticate_google_user(db: Session, google_token: str) -> TokenResponse:
         user=user
     )
 
+
 def authenticate_email_user(db: Session, email: str, password: str) -> TokenResponse:
     """
     Verifies the email and password, and returns a signed JWT access token and user details.
     """
     from backend.utils.security import verify_password
     user = user_service.get_user_by_email(db, email)
-    if not user:
+    if not user or user.is_deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Account not found. Please register first."
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account disabled. Contact administrator."
         )
 
     if user.provider != "local" or not user.password_hash or not verify_password(password, user.password_hash):
@@ -112,3 +125,4 @@ def authenticate_email_user(db: Session, email: str, password: str) -> TokenResp
         token_type="bearer",
         user=user
     )
+

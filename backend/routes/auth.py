@@ -52,6 +52,12 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    if not user.is_active or user.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account disabled. Contact administrator."
+        )
+
     return user
 
 async def get_current_admin(current_user: User = Depends(get_current_user)) -> User:

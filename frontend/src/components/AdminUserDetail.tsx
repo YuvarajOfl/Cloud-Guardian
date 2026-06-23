@@ -10,7 +10,8 @@ import {
   LogIn,
   History,
   ShieldCheck,
-  ShieldAlert
+  ShieldAlert,
+  Trash2
 } from 'lucide-react';
 import { API_URL } from '../config';
 
@@ -22,6 +23,8 @@ interface UserDetail {
     role: string;
     provider: string;
     profile_picture?: string;
+    is_active?: boolean;
+    is_deleted?: boolean;
     created_at: string;
     updated_at: string;
   };
@@ -39,37 +42,81 @@ interface UserDetail {
 
 export function AdminUserDetail() {
   const { id } = useParams<{ id: string }>();
-  const { token } = useAuth();
+  const { token, user: currentUser } = useAuth();
   const navigate = useNavigate();
   
   const [data, setData] = useState<UserDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadingAction, setLoadingAction] = useState(false);
+  const [actionPending, setActionPending] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  async function fetchUserDetail(showLoading = true) {
+    try {
+      if (showLoading) setLoading(true);
+      const response = await fetch(`${API_URL}/api/admin/user/${id}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (!response.ok) {
+        throw new Error('Failed to retrieve user diagnostics');
+      }
+      const resData = await response.json();
+      setData(resData);
+    } catch (err: any) {
+      setError(err.message || 'An error occurred while loading user detail');
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    async function fetchUserDetail() {
-      try {
-        setLoading(true);
-        const response = await fetch(`${API_URL}/api/admin/user/${id}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        if (!response.ok) {
-          throw new Error('Failed to retrieve user diagnostics');
-        }
-        const resData = await response.json();
-        setData(resData);
-      } catch (err: any) {
-        setError(err.message || 'An error occurred while loading user detail');
-      } finally {
-        setLoading(false);
-      }
-    }
     if (token && id) {
-      fetchUserDetail();
+      fetchUserDetail(true);
     }
   }, [token, id]);
+
+  const handleAction = async (action: string) => {
+    setLoadingAction(true);
+    setActionError(null);
+    try {
+      let url = `${API_URL}/api/admin/user/${id}`;
+      let method = 'POST';
+      if (action === 'disable') url += '/disable';
+      else if (action === 'enable') url += '/enable';
+      else if (action === 'promote') url += '/promote';
+      else if (action === 'demote') url += '/demote';
+      else if (action === 'delete') {
+        method = 'DELETE';
+      }
+      
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || `Failed to perform administrative action: ${action}`);
+      }
+      
+      if (action === 'delete') {
+        navigate('/admin/users');
+      } else {
+        await fetchUserDetail(false);
+        setActionPending(null);
+      }
+    } catch (err: any) {
+      setActionError(err.message || 'An error occurred while performing administrative task.');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -131,6 +178,13 @@ export function AdminUserDetail() {
               }`}>
                 {user.role || 'user'}
               </span>
+              <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono tracking-wider uppercase w-fit mx-auto md:mx-0 ${
+                user.is_active !== false 
+                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/15' 
+                  : 'bg-rose-500/10 text-rose-455 border border-rose-500/15'
+              }`}>
+                {user.is_active !== false ? 'Active' : 'Disabled'}
+              </span>
             </div>
             <p className="text-xs text-slate-400 font-mono">{user.email}</p>
             <div className="flex flex-wrap justify-center md:justify-start items-center gap-4 text-[10px] text-slate-550 text-slate-500 font-mono pt-1">
@@ -141,6 +195,78 @@ export function AdminUserDetail() {
               <span>Registered: <b className="text-slate-300">{new Date(user.created_at).toLocaleString()}</b></span>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Admin Actions Panel */}
+      <div className="p-6 bg-slate-900/20 border border-white/5 rounded-2xl space-y-4">
+        <div>
+          <h4 className="text-sm font-bold text-white tracking-tight">Administrative Actions</h4>
+          <p className="text-[11px] text-slate-400 mt-0.5">Elevate, restrict, or decommission this security operator account.</p>
+        </div>
+
+        {actionError && (
+          <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-400 text-xs flex items-center gap-2 font-mono">
+            <ShieldAlert className="h-4 w-4 shrink-0" />
+            <span>{actionError}</span>
+          </div>
+        )}
+
+        {actionSuccess && (
+          <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 text-xs flex items-center gap-2 font-mono">
+            <ShieldCheck className="h-4 w-4 shrink-0" />
+            <span>{actionSuccess}</span>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-3 pt-2">
+          {user.is_active !== false ? (
+            <button
+              onClick={() => handleAction('disable')}
+              disabled={actionLoading}
+              className="px-4 py-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 hover:border-amber-500/40 text-amber-400 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+            >
+              Disable Account
+            </button>
+          ) : (
+            <button
+              onClick={() => handleAction('enable')}
+              disabled={actionLoading}
+              className="px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 hover:border-emerald-500/40 text-emerald-400 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+            >
+              Enable Account
+            </button>
+          )}
+
+          {user.role !== 'admin' ? (
+            <button
+              onClick={() => handleAction('promote')}
+              disabled={actionLoading}
+              className="px-4 py-2 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 hover:border-purple-500/40 text-purple-400 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+            >
+              Promote to Admin
+            </button>
+          ) : (
+            <button
+              onClick={() => handleAction('demote')}
+              disabled={actionLoading}
+              className="px-4 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 hover:border-indigo-500/40 text-indigo-400 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+            >
+              Demote to User
+            </button>
+          )}
+
+          <button
+            onClick={() => {
+              if (window.confirm("Are you sure you want to soft delete this user account? This action is permanent and will restrict access immediately.")) {
+                handleAction('delete');
+              }
+            }}
+            disabled={actionLoading}
+            className="px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 hover:border-rose-500/40 text-rose-455 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+          >
+            Soft Delete User
+          </button>
         </div>
       </div>
 
@@ -189,6 +315,218 @@ export function AdminUserDetail() {
           </span>
         </div>
 
+      </div>
+
+      {/* Administrative Operations Control Console */}
+      <div className="bg-slate-900/20 border border-white/5 rounded-2xl overflow-hidden shadow-xl">
+        <div className="p-4.5 border-b border-white/5 bg-slate-950/20 flex items-center gap-2">
+          <ShieldAlert className="h-4.5 w-4.5 text-purple-400" />
+          <span className="text-[10px] uppercase font-bold tracking-widest text-slate-400 font-mono">Administrative Control Console</span>
+        </div>
+
+        <div className="p-6 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="text-left space-y-1">
+              <h4 className="text-sm font-bold text-slate-200">Security Override Operations</h4>
+              <p className="text-xs text-slate-400">Perform role promotion, account disabling, or permanent soft-deletion on this security operator.</p>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono tracking-wider uppercase ${
+                user.is_active !== false 
+                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/15' 
+                  : 'bg-rose-500/10 text-rose-450 border border-rose-500/15'
+              }`}>
+                Status: {user.is_active !== false ? 'Active Account' : 'Disabled Account'}
+              </span>
+              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono tracking-wider uppercase bg-slate-500/10 text-slate-400 border border-white/5`}>
+                Role: {user.role || 'user'}
+              </span>
+            </div>
+          </div>
+
+          {actionError && (
+            <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 text-rose-350 rounded-xl text-xs flex items-center gap-2 text-left">
+              <ShieldAlert className="h-4 w-4 shrink-0 text-rose-400" />
+              <span>{actionError}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            {/* Enable/Disable Button */}
+            {user.is_active === false ? (
+              <div className="p-4 bg-white/[0.01] border border-white/5 rounded-xl flex flex-col justify-between gap-3 text-left">
+                <div className="space-y-0.5">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">Account Access</span>
+                  <p className="text-[11px] text-slate-400">Restore standard login access for this operator.</p>
+                </div>
+                {actionPending === 'enable' ? (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleAction('enable')}
+                      disabled={loadingAction}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold font-mono cursor-pointer disabled:opacity-50"
+                    >
+                      {loadingAction ? 'Enabling...' : 'Confirm'}
+                    </button>
+                    <button
+                      onClick={() => setActionPending(null)}
+                      className="px-3 py-1.5 bg-slate-900 border border-white/10 hover:bg-white/5 text-slate-350 rounded-lg text-xs font-bold font-mono cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { setActionPending('enable'); setActionError(null); }}
+                    className="w-fit px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/25 border border-emerald-500/20 text-emerald-400 hover:text-emerald-300 transition-all rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer font-mono"
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    <span>Enable Operator</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="p-4 bg-white/[0.01] border border-white/5 rounded-xl flex flex-col justify-between gap-3 text-left">
+                <div className="space-y-0.5">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">Account Access</span>
+                  <p className="text-[11px] text-slate-400">Suspend access immediately. Owner cannot log in or make compliance queries.</p>
+                </div>
+                {currentUser?.id === user.id ? (
+                  <span className="text-[10px] text-slate-550 text-slate-500 font-mono italic">Self-suspension disabled</span>
+                ) : actionPending === 'disable' ? (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleAction('disable')}
+                      disabled={loadingAction}
+                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold font-mono cursor-pointer disabled:opacity-50"
+                    >
+                      {loadingAction ? 'Disabling...' : 'Confirm'}
+                    </button>
+                    <button
+                      onClick={() => setActionPending(null)}
+                      className="px-3 py-1.5 bg-slate-900 border border-white/10 hover:bg-white/5 text-slate-350 rounded-lg text-xs font-bold font-mono cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { setActionPending('disable'); setActionError(null); }}
+                    className="w-fit px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/20 text-amber-400 hover:text-amber-300 transition-all rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer font-mono"
+                  >
+                    <ShieldAlert className="h-3.5 w-3.5" />
+                    <span>Disable Operator</span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Promote/Demote Button */}
+            {user.role === 'admin' ? (
+              <div className="p-4 bg-white/[0.01] border border-white/5 rounded-xl flex flex-col justify-between gap-3 text-left">
+                <div className="space-y-0.5">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">Security Clearance</span>
+                  <p className="text-[11px] text-slate-400">Demote to Standard clearance. Removes administrative control views.</p>
+                </div>
+                {currentUser?.id === user.id ? (
+                  <span className="text-[10px] text-slate-550 text-slate-500 font-mono italic">Self-demotion disabled</span>
+                ) : actionPending === 'demote' ? (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleAction('demote')}
+                      disabled={loadingAction}
+                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold font-mono cursor-pointer disabled:opacity-50"
+                    >
+                      {loadingAction ? 'Demoting...' : 'Confirm'}
+                    </button>
+                    <button
+                      onClick={() => setActionPending(null)}
+                      className="px-3 py-1.5 bg-slate-900 border border-white/10 hover:bg-white/5 text-slate-350 rounded-lg text-xs font-bold font-mono cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { setActionPending('demote'); setActionError(null); }}
+                    className="w-fit px-3 py-1.5 bg-indigo-500/10 hover:bg-indigo-500/25 border border-indigo-500/20 text-indigo-400 hover:text-indigo-300 transition-all rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer font-mono"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" />
+                    <span>Demote to Standard</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="p-4 bg-white/[0.01] border border-white/5 rounded-xl flex flex-col justify-between gap-3 text-left">
+                <div className="space-y-0.5">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">Security Clearance</span>
+                  <p className="text-[11px] text-slate-400">Elevate clearance. Grants dashboard views and system audit privileges.</p>
+                </div>
+                {actionPending === 'promote' ? (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleAction('promote')}
+                      disabled={loadingAction}
+                      className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-bold font-mono cursor-pointer disabled:opacity-50"
+                    >
+                      {loadingAction ? 'Promoting...' : 'Confirm'}
+                    </button>
+                    <button
+                      onClick={() => setActionPending(null)}
+                      className="px-3 py-1.5 bg-slate-900 border border-white/10 hover:bg-white/5 text-slate-350 rounded-lg text-xs font-bold font-mono cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { setActionPending('promote'); setActionError(null); }}
+                    className="w-fit px-3 py-1.5 bg-purple-500/10 hover:bg-purple-500/25 border border-purple-500/20 text-purple-400 hover:text-purple-300 transition-all rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer font-mono"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>Promote to Admin</span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Permanent Soft-Delete Button */}
+            <div className="p-4 bg-white/[0.01] border border-white/5 rounded-xl flex flex-col justify-between gap-3 text-left">
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">Permanency Operation</span>
+                <p className="text-[11px] text-slate-400">Soft-delete operator. Revokes permissions and hides account immediately.</p>
+              </div>
+              {currentUser?.id === user.id ? (
+                <span className="text-[10px] text-slate-550 text-slate-500 font-mono italic">Self-deletion disabled</span>
+              ) : actionPending === 'delete' ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleAction('delete')}
+                    disabled={loadingAction}
+                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold font-mono cursor-pointer disabled:opacity-50"
+                  >
+                    {loadingAction ? 'Deleting...' : 'Confirm'}
+                  </button>
+                  <button
+                    onClick={() => setActionPending(null)}
+                    className="px-3 py-1.5 bg-slate-900 border border-white/10 hover:bg-white/5 text-slate-350 rounded-lg text-xs font-bold font-mono cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => { setActionPending('delete'); setActionError(null); }}
+                  className="w-fit px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/20 text-rose-450 hover:text-rose-350 transition-all rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer font-mono"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>Delete Operator</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Activity Log Audit Timeline */}

@@ -65,11 +65,26 @@ try:
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables initialized successfully.")
 
-    # Backfill role column for any existing users
-    from sqlalchemy import text
+    # Schema migration: check and add missing columns defensively
+    from sqlalchemy import inspect, text
+    inspector = inspect(engine)
+    if "users" in inspector.get_table_names():
+        columns = [col["name"] for col in inspector.get_columns("users")]
+        with engine.begin() as conn:
+            if "is_active" not in columns:
+                logger.info("Adding is_active column to users table...")
+                conn.execute(text("ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT 1"))
+            if "is_deleted" not in columns:
+                logger.info("Adding is_deleted column to users table...")
+                conn.execute(text("ALTER TABLE users ADD COLUMN is_deleted BOOLEAN DEFAULT 0"))
+
+    # Backfill role/active/deleted columns for any existing users
     with engine.begin() as conn:
         conn.execute(text("UPDATE users SET role = 'user' WHERE role IS NULL"))
-    logger.info("Database role backfill completed successfully.")
+        conn.execute(text("UPDATE users SET is_active = 1 WHERE is_active IS NULL"))
+        conn.execute(text("UPDATE users SET is_deleted = 0 WHERE is_deleted IS NULL"))
+    logger.info("Database role and active status backfill completed successfully.")
+
 
     # 3. Bootstrap Administrator account if configured
     if settings.ADMIN_EMAIL and settings.ADMIN_PASSWORD:
